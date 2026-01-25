@@ -1,0 +1,57 @@
+repos:
+  # ===================== 基础必选钩子 =====================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0  # 稳定版本
+    hooks:
+      - id: trailing-whitespace  # 移除行尾空格
+      - id: end-of-file-fixer    # 确保文件以空行结尾
+      - id: check-yaml           # 检查YAML语法
+      - id: check-ast            # 检查Python AST语法
+      - id: check-added-large-files  # 拦截大文件
+        args: ['--maxkb=1000']   # 调整大文件阈值为1000KB（适配AI项目小数据集）
+      - id: check-case-conflict     # 检查文件名大小写冲突
+      - id: check-merge-conflict    # 检查合并冲突标记
+      - id: debug-statements        # 检查调试语句
+
+  # Python代码格式化：black
+  - repo: https://github.com/psf/black
+    rev: 25.1.0  # 稳定版本
+    hooks:
+      - id: black
+        args: ['--line-length=120']  # 行长度适配AI项目长函数参数
+
+  # 整理import顺序：isort
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2  # 稳定版本
+    hooks:
+      - id: isort
+        args: ['--profile=black']  # 和black格式兼容
+
+  # 代码风格检查：ruff (替代flake8，性能更好)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9  # 稳定版本
+    hooks:
+      - id: ruff
+        args:
+          - --line-length=120
+          - --select=E,W,F,I,N,UP,YTT,B,SIM,COM,C4,DTZ,T10,EM,EXE,FA,ISC,ICN,G,INP,PIE,Q003,RET,RSE,SLF,SIM,T20,TID,TRY
+          - --ignore=E203,W503,COM812  # 忽略和black冲突的规则
+
+  # 检测硬编码密钥：detect-secrets (暂时禁用，基线文件问题)
+  # - repo: https://github.com/Yelp/detect-secrets
+  #   rev: v1.5.0  # 最新版本
+  #   hooks:
+  #     - id: detect-secrets
+  #       args: ['--baseline', '.secrets.baseline']  # 基线文件（避免误报）
+  #       exclude: |
+  #         (?x)^(
+  #             tests/.*|
+  #             pyproject.toml
+  #         )$
+
+  # 整理pyproject.toml：toml-sort
+  - repo: https://github.com/pappasam/toml-sort
+    rev: v0.24.2  # 最新版本
+    hooks:
+      - id: toml-sort
+        args: ['--in-place', 'pyproject.toml']
