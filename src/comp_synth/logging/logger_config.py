@@ -18,7 +18,7 @@ CONSOLE_FMT = (
 # 文件纯文本格式（含进程/线程ID，便于多进程调试）
 FILE_FMT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | " "{level: <8} | " "{module}:{line} | " "{message}"
 # 错误日志格式（含异常堆栈）
-ERROR_FMT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | " "{level: <8} | " "{module}:{line} | " "{message}\n{exception}"
+ERROR_FMT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | " "{level: <8} | " "{module}:{line} | " "{message}"
 
 logger.remove()
 
@@ -28,7 +28,7 @@ logger.add(
     format=FILE_FMT,
     encoding="utf-8",
     enqueue=True,
-    backtrace=True,
+    backtrace=False,
     diagnose=False,
 )
 

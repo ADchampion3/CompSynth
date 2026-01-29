@@ -100,13 +100,17 @@ from comp_synth.logging import logger
 # handle_request(1003)
 
 
-logger.debug("agent调用工具失败")
-logger.info("agent调用add工具中")
+def test_logger():
+    logger.debug("agent调用工具失败")
+    logger.info("agent调用add工具中")
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def divide(a, b):
     return a / b
 
-
-divide(1, 0)
+def test_logger_reraise():
+    try:
+        divide(1, 0)
+    except Exception:
+        print("process catch error")
