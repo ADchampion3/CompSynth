@@ -7,10 +7,24 @@ dev = [
 [project]
 name = "compsynth"
 version = "0.1.0"
-description = "Add your description here"
+description = "内容聚合与发布系统 - 自动订阅、整合分析、媒体推送"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "detect-secrets>=1.5.0",
-  "loguru>=0.7.3"
+  "loguru>=0.7.3",
+  "pydantic-settings>=2.0",
+  "httpx>=0.27",
+  "beautifulsoup4>=4.12",
+  "readability-lxml>=0.8",
+  "feedparser>=6.0",
+  "langchain-core>=0.3",
+  "langchain-openai>=0.3",
+  "langchain-anthropic>=0.3",
+  "chromadb>=0.5",
+  "langchain-chroma>=0.2",
+  "langgraph>=0.2",
+  "pyyaml>=6.0"
 ]
+
+[project.scripts]
+compsynth = "comp_synth.main:main"
