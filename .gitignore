@@ -13,5 +13,14 @@ wheels/
 # Config
 .env
 
+# vibe coding
+/.claude
+
 # Log
 logs/*
+
+# Output
+output/
+
+# lib usage demo
+lib_demo/

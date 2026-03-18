@@ -1,0 +1,10 @@
+# CompSynth 订阅源配置
+# 复制此文件为 subscriptions.yaml 并填入实际订阅源
+
+sources:
+  - type: rss
+    url: https://example.com/feed.xml
+    name: Example Blog
+  - type: web
+    url: https://news.example.com/page
+    name: Example News
