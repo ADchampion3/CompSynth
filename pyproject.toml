@@ -1,6 +1,7 @@
 [dependency-groups]
 dev = [
-  "pre-commit>=4.5.1"
+  "pre-commit>=4.5.1",
+  "pytest>=9.0.2"
 ]
 
 [project]
@@ -10,5 +11,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "detect-secrets>=1.5.0"
+  "detect-secrets>=1.5.0",
+  "loguru>=0.7.3"
 ]
