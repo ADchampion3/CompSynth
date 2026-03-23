@@ -192,11 +192,15 @@ class AdaptiveWebCrawler(BaseCrawler):
         3. LLM 学习并提取
         4. 启发式后备方案
         """
+        logger.info(f"[_extract_list_items] 开始提取列表项 | site={site_name}")
+
         # 步骤1：尝试用户配置的 selectors
+        logger.info("[Step 1] user_selector | 尝试用户配置的 list_selectors")
         if user_selectors:
+            logger.info(f"[Data] user_list_selectors: {user_selectors}")
             items = self._dom_extractor.extract_list_items_with_selectors(html, user_selectors)
+            logger.info(f"[Result] {'成功' if items and self._has_valid_data(items) else '失败'} | 提取到 {len(items) if items else 0} 个条目")
             if items and self._has_valid_data(items):
-                logger.info("使用用户配置的 selectors 提取列表项")
                 # 转换为绝对 URL
                 for item in items:
                     if item.get("url"):
@@ -204,19 +208,24 @@ class AdaptiveWebCrawler(BaseCrawler):
                 return self._deduplicate_items(items)
 
         # 步骤2：DB selectors
+        logger.info("[Step 2] db_selector | 尝试 DB 中已存储的 list_selectors")
         schema = self._schema_store.get(site_name)
         if schema and schema.list_selectors:
+            logger.info(f"[Data] db_list_selectors: {schema.list_selectors}")
             items = self._dom_extractor.extract_list_items_with_selectors(html, schema.list_selectors)
+            logger.info(f"[Result] {'成功' if items and self._has_valid_data(items) else '失败'} | 提取到 {len(items) if items else 0} 个条目")
             if items and self._has_valid_data(items):
-                logger.info("使用 DB 的 list_selectors 提取列表项")
                 for item in items:
                     if item.get("url"):
                         item["url"] = urljoin(base_url, item["url"])
                 return self._deduplicate_items(items)
 
         # 步骤3：LLM 学习
+        logger.info("[Step 3] llm_learning | 尝试 LLM 学习并提取")
         if self._schema_store.can_use_llm(site_name):
+            logger.info(f"[Data] site={site_name}, can_use_llm=True")
             llm_items = await self._learn_list_item_schema(html, site_name)
+            logger.info(f"[Result] {'成功' if llm_items else '失败'} | 提取到 {len(llm_items) if llm_items else 0} 个条目")
             if llm_items:
                 for item in llm_items:
                     if item.get("url"):
@@ -224,24 +233,29 @@ class AdaptiveWebCrawler(BaseCrawler):
                 return self._deduplicate_items(llm_items)
 
         # 步骤4：启发式后备
-        logger.info("使用启发式方法提取列表项")
-        return await self._extract_list_items_heuristic(html, base_url)
+        logger.info("[Step 4] heuristic | 尝试启发式方法提取")
+        heuristic_items = await self._extract_list_items_heuristic(html, base_url)
+        logger.info(f"[Result] 提取到 {len(heuristic_items)} 个条目")
+        return heuristic_items
 
     async def _learn_list_item_schema(self, html: str, site_name: str) -> list[dict]:
         """使用 LLM 学习列表页结构并提取文章条目"""
+        logger.info(f"[_learn_list_item_schema] 开始 LLM 学习 | site={site_name}")
         try:
             # 并发调用：生成 list selectors 和提取内容
             selectors_task = self._dom_extractor.generate_list_item_selectors(html)
             extract_task = self._dom_extractor.extract_list_items(html)
 
+            logger.info(f"[_learn_list_item_schema] LLM 并发调用: generate_list_item_selectors + extract_list_items")
             list_selectors, extracted = await asyncio.gather(selectors_task, extract_task)
+            logger.info(f"[_learn_list_item_schema] LLM 返回 | selectors_keys={list(list_selectors.keys()) if list_selectors else None}, items_count={len(extracted.get('items', []))}")
 
             items = extracted.get("items", [])
 
             if list_selectors and items:
                 # 保存 list_selectors 到 schema
                 self._schema_store.update_list_selectors(site_name, list_selectors)
-                logger.info(f"站点 {site_name} 的 list_selectors 已保存: {list_selectors}")
+                logger.info(f"[_learn_list_item_schema] list_selectors 已保存: {list_selectors}")
 
             # 标记 LLM 已调用
             self._schema_store.mark_llm_called(site_name)
@@ -346,25 +360,29 @@ class AdaptiveWebCrawler(BaseCrawler):
         爬取列表页，提取所有文章条目
         核心原则：只有 summary 缺失或太短时才爬详情页
         """
+        raw_html_size = len(html)
         site_name = self._detect_site(url)
+
+        logger.info(f"=== 列表页爬取开始 | URL: {url} | HTML大小: {raw_html_size} bytes ===")
+
         items = await self._extract_list_items(html, url, site_name)
+        logger.info(f"[Raw] 提取到 {len(items)} 个列表条目")
+
         results = []
 
-        for item_dict in items:
-            # 检查是否已爬取
-            if self._tracker.is_crawled("web", item_dict["url"]):
-                logger.info(f"列表中 URL 已爬取，跳过: {item_dict['url']}")
-                continue
+        for i, item_dict in enumerate(items):
+            logger.info(f"[列表条目 {i+1}/{len(items)}] title={item_dict.get('title', '')[:30]}... | url={item_dict['url']}")
 
             item_summary = item_dict.get("summary", "")
+            summary_len = len(item_summary)
 
             # 只有 summary 缺失或太短时才爬详情页
             if not self._is_summary_enough(item_summary):
-                logger.info(f"Summary 不足，爬取详情页: {item_dict['url']}")
+                logger.info(f"[列表条目 {i+1}] Summary 不足 ({summary_len} chars <= 100)，爬取详情页")
                 detail_item = await self._fetch_article_detail(item_dict["url"])
                 if detail_item:
+                    logger.info(f"[列表条目 {i+1}] [Structured] {{title: {detail_item.title[:30]}..., content长度: {len(detail_item.content)}, summary长度: {len(detail_item.summary)}}}")
                     results.append(detail_item)
-                    self._tracker.mark_crawled("web", item_dict["url"])
             else:
                 # 直接使用列表页提取的元数据，不爬详情页
                 item = self._build_item(
@@ -374,25 +392,30 @@ class AdaptiveWebCrawler(BaseCrawler):
                     summary=item_summary,
                     site_name=self._detect_site(item_dict["url"]),
                 )
+                logger.info(f"[列表条目 {i+1}] [Structured] {{title: {item.title[:30]}..., summary长度: {len(item.summary)} (充足，跳过详情页)}}")
                 results.append(item)
-                self._tracker.mark_crawled("web", item_dict["url"])
 
-        # 标记列表页本身已爬取
-        self._tracker.mark_crawled("web", url)
-
+        logger.info(f"=== 列表页爬取结束 | 共 {len(results)} 条内容 ===")
         return results
 
     async def _crawl_detail_page(self, html: str, url: str, user_selectors: dict = None) -> list[WebPageItem]:
         """
         爬取详情页（原有逻辑）
+        输出爬取流程和结构化数据
         """
+        raw_html_size = len(html)
         site_name = self._detect_site(url)
         item: WebPageItem | None = None
         schema = self._schema_store.get(site_name)
 
+        logger.info(f"=== 详情页爬取开始 | URL: {url} | HTML大小: {raw_html_size} bytes ===")
+
         # === 步骤 0：尝试用户配置的 selectors ===
+        logger.info("[Step 0] user_selector | 尝试用户配置的 selectors")
         if user_selectors and user_selectors.get("content"):
+            logger.info(f"[Data] user_selectors: {user_selectors}")
             schema_result = await self._extract_with_schema(html, user_selectors)
+            logger.info(f"[Result] {'成功' if schema_result.get('content') else '失败'} | title={schema_result.get('title', '')[:30] if schema_result.get('title') else 'N/A'}... | content长度={len(schema_result.get('content', ''))}")
             if schema_result.get("content"):
                 item = self._build_item(
                     url=url,
@@ -402,12 +425,15 @@ class AdaptiveWebCrawler(BaseCrawler):
                     tags=schema_result.get("tags", []),
                     site_name=site_name,
                 )
-                self._tracker.mark_crawled("web", url)
+                logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, content长度: {len(item.content)}, tags: {item.tags}}}")
                 return [item]
 
         # === 步骤 1：readability 提取 ===
+        logger.info("[Step 1] readability | 尝试 readability 提取")
         readability_result = await self._extract_with_readability(html)
         has_content = bool(readability_result.get("content") and len(readability_result["content"]) > 100)
+        logger.info(f"[Raw] title={readability_result.get('title', '')[:30] if readability_result.get('title') else 'N/A'}... | summary长度={len(readability_result.get('summary', ''))} | content长度={len(readability_result.get('content', ''))}")
+        logger.info(f"[Result] {'成功' if has_content else '失败'}")
 
         if has_content:
             item = self._build_item(
@@ -417,12 +443,15 @@ class AdaptiveWebCrawler(BaseCrawler):
                 summary=readability_result.get("summary", ""),
                 site_name=site_name,
             )
-            self._tracker.mark_crawled("web", url)
+            logger.info(f"[Structured] {{title: {item.title[:30]}..., content长度: {len(item.content)}, summary长度: {len(item.summary)}}}")
             return [item]
 
         # === 步骤 2：尝试 Schema (CSS Selector) ===
+        logger.info("[Step 2] db_selector | 尝试 DB Schema Selector")
         if schema and schema.selectors:
+            logger.info(f"[Data] db_selectors: {schema.selectors}")
             schema_result = await self._extract_with_schema(html, schema.selectors)
+            logger.info(f"[Result] {'成功' if schema_result.get('content') else '失败'} | title={schema_result.get('title', '')[:30] if schema_result.get('title') else 'N/A'}... | content长度={len(schema_result.get('content', ''))}")
             if schema_result.get("content"):
                 item = self._build_item(
                     url=url,
@@ -432,16 +461,18 @@ class AdaptiveWebCrawler(BaseCrawler):
                     tags=schema_result.get("tags", []),
                     site_name=site_name,
                 )
-                self._tracker.mark_crawled("web", url)
+                logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, content长度: {len(item.content)}, tags: {item.tags}}}")
                 return [item]
 
         # === 步骤 3：二次爬取 ===
+        logger.info("[Step 3] fetch_detail | 尝试二次爬取")
         article_link = await self._find_article_link(html, url)
         if article_link and article_link != url:
             try:
-                logger.info(f"二次爬取获取完整内容: {article_link}")
+                logger.info(f"[Data] 找到文章链接: {article_link}")
                 detail_html = await self._fetch_html(article_link)
                 detail_result = await self._extract_with_readability(detail_html)
+                logger.info(f"[Result] {'成功' if detail_result.get('content') else '失败'} | content长度={len(detail_result.get('content', ''))}")
 
                 if detail_result.get("content"):
                     item = self._build_item(
@@ -451,14 +482,17 @@ class AdaptiveWebCrawler(BaseCrawler):
                         summary=detail_result.get("summary", ""),
                         site_name=site_name,
                     )
-                    self._tracker.mark_crawled("web", url)
+                    logger.info(f"[Structured] {{title: {item.title[:30]}..., content长度: {len(item.content)}}}")
                     return [item]
             except Exception as e:
                 logger.warning(f"二次爬取失败: {e}")
 
         # === 步骤 4：LLM 提取（每站每天 1 次）===
+        logger.info("[Step 4] llm_learning | 尝试 LLM 提取")
         if self._schema_store.can_use_llm(site_name):
+            logger.info(f"[Data] site_name={site_name}, can_use_llm=True")
             llm_result = await self._learn_and_extract(html, site_name)
+            logger.info(f"[Result] {'成功' if llm_result.get('content') or llm_result.get('title') else '失败'} | title={llm_result.get('title', '')[:30] if llm_result.get('title') else 'N/A'}... | content长度={len(llm_result.get('content', ''))}")
             if llm_result.get("content") or llm_result.get("title"):
                 item = self._build_item(
                     url=url,
@@ -468,10 +502,11 @@ class AdaptiveWebCrawler(BaseCrawler):
                     tags=llm_result.get("tags", []),
                     site_name=site_name,
                 )
-                self._tracker.mark_crawled("web", url)
+                logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, content长度: {len(item.content)}, tags: {item.tags}}}")
                 return [item]
 
         # === 最终保底：返回最低信息（url + title）===
+        logger.info("[Step 5] heuristic | 使用最终保底方案（url + title）")
         item = self._build_item(
             url=url,
             title=readability_result.get("title", "") or url,
@@ -479,7 +514,8 @@ class AdaptiveWebCrawler(BaseCrawler):
             summary=readability_result.get("summary", ""),
             site_name=site_name,
         )
-        self._tracker.mark_crawled("web", url)
+        logger.info(f"[Structured] {{title: {item.title[:30] if item.title else 'N/A'}..., content: '' (保底)}}")
+        logger.info(f"=== 详情页爬取结束 | 最终方法: {'user_selector' if user_selectors and schema_result.get('content') else 'readability' if has_content else 'db_selector' if schema and schema_result.get('content') else 'fetch_detail' if article_link else 'llm_learning' if self._schema_store.can_use_llm(site_name) else 'heuristic'} ===")
         return [item]
 
     async def _learn_and_extract(self, html: str, site_name: str) -> dict[str, str]:
