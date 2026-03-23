@@ -172,28 +172,49 @@ class AdaptiveWebCrawler(BaseCrawler):
 
         return False
 
-    async def _extract_list_items(self, html: str, base_url: str, site_name: str) -> list[dict]:
+    def _has_valid_data(self, items: list[dict]) -> bool:
+        """检查是否有有效数据（至少 title 和 url 非空）"""
+        return any(item.get("title") and item.get("url") for item in items)
+
+    async def _extract_list_items(
+        self,
+        html: str,
+        base_url: str,
+        site_name: str,
+        user_selectors: dict = None,
+    ) -> list[dict]:
         """
         从列表页提取所有文章条目，返回 [{"url": "", "title": "", "summary": ""}, ...]
 
-        提取策略：
-        1. 优先使用已存储的 list_selectors（CSS Selector）
-        2. 若无 selectors 但允许 LLM，则使用 LLM 提取并学习 selectors
-        3. 否则使用启发式方法
+        提取策略（优先级从高到低）：
+        1. 用户配置的 selectors
+        2. DB 中已存储的 list_selectors
+        3. LLM 学习并提取
+        4. 启发式后备方案
         """
-        # 步骤1：尝试使用已存储的 list_selectors
-        schema = self._schema_store.get(site_name)
-        if schema and schema.list_selectors:
-            logger.info(f"使用已存储的 list_selectors 提取列表项: {site_name}")
-            items = self._dom_extractor.extract_list_items_with_selectors(html, schema.list_selectors)
-            if items:
+        # 步骤1：尝试用户配置的 selectors
+        if user_selectors:
+            items = self._dom_extractor.extract_list_items_with_selectors(html, user_selectors)
+            if items and self._has_valid_data(items):
+                logger.info("使用用户配置的 selectors 提取列表项")
                 # 转换为绝对 URL
                 for item in items:
                     if item.get("url"):
                         item["url"] = urljoin(base_url, item["url"])
                 return self._deduplicate_items(items)
 
-        # 步骤2：若允许 LLM，使用 LLM 提取并学习 selectors
+        # 步骤2：DB selectors
+        schema = self._schema_store.get(site_name)
+        if schema and schema.list_selectors:
+            items = self._dom_extractor.extract_list_items_with_selectors(html, schema.list_selectors)
+            if items and self._has_valid_data(items):
+                logger.info("使用 DB 的 list_selectors 提取列表项")
+                for item in items:
+                    if item.get("url"):
+                        item["url"] = urljoin(base_url, item["url"])
+                return self._deduplicate_items(items)
+
+        # 步骤3：LLM 学习
         if self._schema_store.can_use_llm(site_name):
             llm_items = await self._learn_list_item_schema(html, site_name)
             if llm_items:
@@ -202,8 +223,8 @@ class AdaptiveWebCrawler(BaseCrawler):
                         item["url"] = urljoin(base_url, item["url"])
                 return self._deduplicate_items(llm_items)
 
-        # 步骤3：使用启发式方法（后备）
-        logger.info(f"使用启发式方法提取列表项: {site_name}")
+        # 步骤4：启发式后备
+        logger.info("使用启发式方法提取列表项")
         return await self._extract_list_items_heuristic(html, base_url)
 
     async def _learn_list_item_schema(self, html: str, site_name: str) -> list[dict]:
