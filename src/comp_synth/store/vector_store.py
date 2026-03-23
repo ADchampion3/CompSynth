@@ -10,6 +10,8 @@ class VectorStore:
     """ChromaDB 向量存储封装，支持 TTL 过期清理"""
 
     def __init__(self, collection_name: str = "content_items"):
+        # 确保数据目录存在
+        settings.chroma_persist_dir.mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(
             path=str(settings.chroma_persist_dir)
         )

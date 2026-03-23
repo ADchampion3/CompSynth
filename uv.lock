@@ -362,6 +362,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "loguru" },
     { name = "pydantic-settings" },
+    { name = "pyyaml" },
     { name = "readability-lxml" },
 ]
 
@@ -384,6 +385,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=0.2" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "pydantic-settings", specifier = ">=2.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "readability-lxml", specifier = ">=0.8" },
 ]
 

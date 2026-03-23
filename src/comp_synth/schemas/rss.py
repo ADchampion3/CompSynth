@@ -10,4 +10,4 @@ class RSSItem(ContentItem):
 
     @property
     def id(self):
-        return f"{self.source}:{self.feed_url if self.feed_url else self.title}"
+        return f"{self.source}:{self.url}"

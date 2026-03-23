@@ -11,7 +11,7 @@ class ContentItem(BaseModel):
     url: str
     title: str = ""
     summary: str = ""
-    content: str
+    content: str = ""
     published_at: datetime | None = None
     collected_at: datetime = Field(default_factory=datetime.now)
     metadata: dict = Field(default_factory=dict)

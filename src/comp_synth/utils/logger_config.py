@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 from loguru import logger
@@ -21,6 +22,19 @@ FILE_FMT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | " "{level: <8} | " "{module}:{line}
 ERROR_FMT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | " "{level: <8} | " "{module}:{line} | " "{message}"
 
 logger.remove()
+
+logger.add(
+    sink=sys.stderr,
+    level="DEBUG",
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+           "<level>{level: <8}</level> | "
+           "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+           "<level>{message}</level>",
+    colorize=True,
+    diagnose=True,
+    backtrace=True
+)
+
 
 logger.add(
     sink=LOG_DIR / "app_{time:YYYYMMDD}.log",

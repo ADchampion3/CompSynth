@@ -7,16 +7,16 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
 
 from comp_synth.config import settings
+from comp_synth.crawler.adaptive_crawler import AdaptiveWebCrawler
 from comp_synth.crawler.rss_crawler import RSSCrawler
-from comp_synth.crawler.web_crawler import WebCrawler
-from comp_synth.llm.providers import create_provider
+from comp_synth.llm.registry import LLMRegistry
 from comp_synth.orchestrator.state import PipelineState
 from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.vector_store import VectorStore
 
 CRAWLER_MAP = {
     "rss": RSSCrawler,
-    "web": WebCrawler,
+    "web": AdaptiveWebCrawler,
 }
 
 
@@ -38,7 +38,8 @@ async def fetch_sources(state: PipelineState) -> dict:
             continue
         try:
             crawler = crawler_cls()
-            items = await crawler.fetch(source)
+            user_selectors = source.get("selectors", {})
+            items = await crawler.fetch(source, user_selectors=user_selectors)
             all_items.extend(items)
             logger.info(f"从 {source.get('name', source['url'])} 获取到 {len(items)} 条内容")
         except Exception as e:
@@ -56,12 +57,14 @@ async def deduplicate(state: PipelineState) -> dict:
     new_items = []
 
     for item in raw_items:
-        if not tracker.is_crawled(item.source, item.url):
-            new_items.append(item)
-            metadata = {}
-            if hasattr(item, "feed_url"):
-                metadata["feed_url"] = item.feed_url
-            tracker.mark_crawled(item.source, item.url, metadata=metadata)
+        if tracker.is_crawled(item.source, item.url):
+            logger.info(f"{item.url}\({item.title}\)已爬取, 已忽略")
+            continue
+        new_items.append(item)
+        metadata = {}
+        if hasattr(item, "feed_url"):
+            metadata["feed_url"] = item.feed_url
+        tracker.mark_crawled(item.source, item.url, metadata=metadata)
 
     logger.info(f"去重完成: {len(raw_items)} 条原始内容 → {len(new_items)} 条新内容")
     return {"new_items": new_items}
@@ -73,12 +76,11 @@ async def summarize(state: PipelineState) -> dict:
     if not new_items:
         return {"topic_groups": [], "report": ""}
 
-    llm = create_provider({
-        "type": "openai",
-        "model": settings.default_model,
-        "api_key": settings.openai_api_key,
-        "base_url": settings.openai_base_url,
-    })
+    llm = LLMRegistry({
+        "openai_api_key": settings.openai_api_key,
+        "openai_base_url": settings.openai_base_url,
+        "model": settings.model,
+    }).get(settings.model)
 
     # 构建文章列表
     articles_text = ""

@@ -1,4 +1,4 @@
-from comp_synth.logging import logger
+from comp_synth.utils import logger
 
 # from loguru import logger
 #

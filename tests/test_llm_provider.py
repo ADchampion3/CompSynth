@@ -9,7 +9,7 @@ load_dotenv()
 llm_config = {
     "openai_base_url": "https://api.siliconflow.cn/v1",
     "openai_api_key": os.environ.get("COMPSYNTH_OPENAI_API_KEY"),
-    "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+"model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
 }
 
 def test_openai_api():
