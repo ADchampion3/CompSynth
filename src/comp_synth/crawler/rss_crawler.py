@@ -32,7 +32,7 @@ class RSSCrawler(BaseCrawler):
             )
         return summary
 
-    async def fetch(self, source_config: dict) -> list[RSSItem]:
+    async def fetch(self, source_config: dict, user_selectors: dict = None) -> list[RSSItem]:
         feed_url = source_config["url"]
         feed = feedparser.parse(feed_url)
 
