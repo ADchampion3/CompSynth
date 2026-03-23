@@ -390,6 +390,21 @@ class AdaptiveWebCrawler(BaseCrawler):
         item: WebPageItem | None = None
         schema = self._schema_store.get(site_name)
 
+        # === 步骤 0：尝试用户配置的 selectors ===
+        if user_selectors and user_selectors.get("content"):
+            schema_result = await self._extract_with_schema(html, user_selectors)
+            if schema_result.get("content"):
+                item = self._build_item(
+                    url=url,
+                    title=schema_result.get("title", ""),
+                    content=schema_result.get("content", ""),
+                    author=schema_result.get("author", ""),
+                    tags=schema_result.get("tags", []),
+                    site_name=site_name,
+                )
+                self._tracker.mark_crawled("web", url)
+                return [item]
+
         # === 步骤 1：readability 提取 ===
         readability_result = await self._extract_with_readability(html)
         has_content = bool(readability_result.get("content") and len(readability_result["content"]) > 100)
