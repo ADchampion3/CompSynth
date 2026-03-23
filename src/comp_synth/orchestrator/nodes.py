@@ -57,12 +57,14 @@ async def deduplicate(state: PipelineState) -> dict:
     new_items = []
 
     for item in raw_items:
-        if not tracker.is_crawled(item.source, item.url):
-            new_items.append(item)
-            metadata = {}
-            if hasattr(item, "feed_url"):
-                metadata["feed_url"] = item.feed_url
-            tracker.mark_crawled(item.source, item.url, metadata=metadata)
+        if tracker.is_crawled(item.source, item.url):
+            logger.info(f"{item.url}\({item.title}\)已爬取, 已忽略")
+            continue
+        new_items.append(item)
+        metadata = {}
+        if hasattr(item, "feed_url"):
+            metadata["feed_url"] = item.feed_url
+        tracker.mark_crawled(item.source, item.url, metadata=metadata)
 
     logger.info(f"去重完成: {len(raw_items)} 条原始内容 → {len(new_items)} 条新内容")
     return {"new_items": new_items}

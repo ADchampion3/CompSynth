@@ -11,6 +11,8 @@ class SchemaStore:
 
     def __init__(self):
         self._db_path = str(settings.site_schema_db_path)
+        # 确保数据目录存在
+        settings.site_schema_db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _init_db(self) -> None:
@@ -22,9 +24,15 @@ class SchemaStore:
                     selectors TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    last_llm_call TEXT
+                    last_llm_call TEXT,
+                    list_selectors TEXT DEFAULT '{}'
                 )
             """)
+            # 迁移：添加 list_selectors 列（如果不存在）
+            try:
+                conn.execute("ALTER TABLE site_schemas ADD COLUMN list_selectors TEXT DEFAULT '{}'")
+            except sqlite3.OperationalError:
+                pass  # 列已存在
 
     def get(self, site_name: str) -> SiteSchema | None:
         """根据站点名获取 Schema"""
@@ -42,27 +50,31 @@ class SchemaStore:
                 created_at=datetime.fromisoformat(row[3]),
                 updated_at=datetime.fromisoformat(row[4]),
                 last_llm_call=datetime.fromisoformat(row[5]) if row[5] else None,
+                list_selectors=json.loads(row[6]) if len(row) > 6 and row[6] else {},
             )
 
     def save(self, schema: SiteSchema) -> None:
         """保存或更新 Schema，created_at 仅在首次创建时设置"""
         with sqlite3.connect(self._db_path) as conn:
             existing = conn.execute(
-                "SELECT created_at FROM site_schemas WHERE site_name = ?",
+                "SELECT created_at, list_selectors FROM site_schemas WHERE site_name = ?",
                 (schema.site_name,),
             ).fetchone()
 
             if existing:
-                # UPDATE - 保留 created_at
+                # UPDATE - 保留 created_at 和已有的 list_selectors（避免覆盖）
+                existing_list_selectors = json.loads(existing[1]) if existing[1] else {}
+                list_selectors_to_save = schema.list_selectors if schema.list_selectors else existing_list_selectors
                 conn.execute(
                     """UPDATE site_schemas
-                       SET site_url = ?, selectors = ?, updated_at = ?, last_llm_call = ?
+                       SET site_url = ?, selectors = ?, updated_at = ?, last_llm_call = ?, list_selectors = ?
                        WHERE site_name = ?""",
                     (
                         schema.site_url,
                         json.dumps(schema.selectors),
                         datetime.now().isoformat(),
                         schema.last_llm_call.isoformat() if schema.last_llm_call else None,
+                        json.dumps(list_selectors_to_save),
                         schema.site_name,
                     ),
                 )
@@ -70,8 +82,8 @@ class SchemaStore:
                 # INSERT
                 conn.execute(
                     """INSERT INTO site_schemas
-                       (site_name, site_url, selectors, created_at, updated_at, last_llm_call)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
+                       (site_name, site_url, selectors, created_at, updated_at, last_llm_call, list_selectors)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (
                         schema.site_name,
                         schema.site_url,
@@ -79,6 +91,7 @@ class SchemaStore:
                         datetime.now().isoformat(),
                         datetime.now().isoformat(),
                         schema.last_llm_call.isoformat() if schema.last_llm_call else None,
+                        json.dumps(schema.list_selectors),
                     ),
                 )
 
@@ -114,3 +127,34 @@ class SchemaStore:
                    WHERE site_name = ?""",
                 (json.dumps(selectors), datetime.now().isoformat(), site_name),
             )
+
+    def update_list_selectors(self, site_name: str, list_selectors: dict[str, str]) -> None:
+        """更新站点的列表页 CSS selectors（UPDATE 或 INSERT）"""
+        with sqlite3.connect(self._db_path) as conn:
+            existing = conn.execute(
+                "SELECT site_name FROM site_schemas WHERE site_name = ?",
+                (site_name,),
+            ).fetchone()
+
+            if existing:
+                conn.execute(
+                    """UPDATE site_schemas
+                       SET list_selectors = ?, updated_at = ?
+                       WHERE site_name = ?""",
+                    (json.dumps(list_selectors), datetime.now().isoformat(), site_name),
+                )
+            else:
+                # 站点不存在，先创建基础记录
+                conn.execute(
+                    """INSERT INTO site_schemas
+                       (site_name, site_url, selectors, created_at, updated_at, list_selectors)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        site_name,
+                        f"https://{site_name}",
+                        json.dumps({}),
+                        datetime.now().isoformat(),
+                        datetime.now().isoformat(),
+                        json.dumps(list_selectors),
+                    ),
+                )

@@ -239,23 +239,32 @@ class AdaptiveWebCrawler(BaseCrawler):
         return heuristic_items
 
     async def _learn_list_item_schema(self, html: str, site_name: str) -> list[dict]:
-        """使用 LLM 学习列表页结构并提取文章条目"""
+        """使用 LLM 学习列表页结构并提取文章条目
+
+        流程：
+        1. LLM 生成 CSS selectors（只做结构分析）
+        2. 用 CSS selectors 提取所有匹配元素（确定性提取，不会遗漏）
+        """
         logger.info(f"[_learn_list_item_schema] 开始 LLM 学习 | site={site_name}")
         try:
-            # 并发调用：生成 list selectors 和提取内容
-            selectors_task = self._dom_extractor.generate_list_item_selectors(html)
-            extract_task = self._dom_extractor.extract_list_items(html)
+            # 步骤1：LLM 生成 list selectors
+            logger.info("[_learn_list_item_schema] 步骤1: LLM 生成 CSS selectors")
+            list_selectors = await self._dom_extractor.generate_list_item_selectors(html)
+            logger.info(f"[_learn_list_item_schema] selectors 生成完成: {list_selectors}")
 
-            logger.info(f"[_learn_list_item_schema] LLM 并发调用: generate_list_item_selectors + extract_list_items")
-            list_selectors, extracted = await asyncio.gather(selectors_task, extract_task)
-            logger.info(f"[_learn_list_item_schema] LLM 返回 | selectors_keys={list(list_selectors.keys()) if list_selectors else None}, items_count={len(extracted.get('items', []))}")
+            if not list_selectors:
+                logger.warning("[_learn_list_item_schema] LLM 未生成有效 selectors")
+                self._schema_store.mark_llm_called(site_name)
+                return []
 
-            items = extracted.get("items", [])
+            # 步骤2：用 CSS selectors 提取所有条目（确定性提取，不会遗漏）
+            logger.info("[_learn_list_item_schema] 步骤2: 使用 CSS selectors 提取所有条目")
+            items = self._dom_extractor.extract_list_items_with_selectors(html, list_selectors)
+            logger.info(f"[_learn_list_item_schema] CSS 提取完成 | 提取到 {len(items)} 个条目")
 
-            if list_selectors and items:
-                # 保存 list_selectors 到 schema
-                self._schema_store.update_list_selectors(site_name, list_selectors)
-                logger.info(f"[_learn_list_item_schema] list_selectors 已保存: {list_selectors}")
+            # 步骤3：保存 selectors 到 schema
+            self._schema_store.update_list_selectors(site_name, list_selectors)
+            logger.info(f"[_learn_list_item_schema] list_selectors 已保存: {list_selectors}")
 
             # 标记 LLM 已调用
             self._schema_store.mark_llm_called(site_name)

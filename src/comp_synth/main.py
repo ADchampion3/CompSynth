@@ -3,8 +3,8 @@ import asyncio
 from loguru import logger
 
 from comp_synth.config import settings as _  # noqa: F811, F401 - 触发config读取
-from comp_synth.logging.logger_config import logger as _  # noqa: F811, F401 — 触发日志配置
 from comp_synth.orchestrator.graph import build_pipeline
+from comp_synth.utils.logger_config import logger as _  # noqa: F811, F401 — 触发日志配置
 
 
 async def run():

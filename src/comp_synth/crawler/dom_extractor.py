@@ -368,7 +368,7 @@ class DOMExtractor:
         containers = soup.select(item_container)
         logger.info(f"[DOMExtractor.extract_list_items_with_selectors] 找到 {len(containers)} 个容器")
         if not containers:
-            logger.info(f"[DOMExtractor.extract_list_items_with_selectors] 未找到容器，返回空列表")
+            logger.info("[DOMExtractor.extract_list_items_with_selectors] 未找到容器，返回空列表")
             return items
 
         for container in containers:

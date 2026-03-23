@@ -10,6 +10,8 @@ class CrawlTracker:
 
     def __init__(self):
         self._db_path = str(settings.crawl_db_path)
+        # 确保数据目录存在
+        settings.crawl_db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _init_db(self) -> None:
