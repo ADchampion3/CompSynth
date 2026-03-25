@@ -17,10 +17,16 @@ wheels/
 /.claude
 
 # Log
-logs/*
+logs/
 
 # Output
 output/
 
 # lib usage demo
 lib_demo/
+
+superpowers/
+
+subscriptions.yaml
+
+data/

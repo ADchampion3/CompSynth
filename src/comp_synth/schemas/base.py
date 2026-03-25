@@ -16,6 +16,7 @@ class ContentItem(BaseModel):
     collected_at: datetime = Field(default_factory=datetime.now)
     metadata: dict = Field(default_factory=dict)
     content_hash: str = ""
+    vector_id: str = ""  # ChromaDB internal ID
 
     def model_post_init(self, __context) -> None:
         if self.content and not self.content_hash:
