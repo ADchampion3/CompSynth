@@ -51,22 +51,58 @@ async def fetch_sources(state: PipelineState) -> dict:
 
 
 async def deduplicate(state: PipelineState) -> dict:
-    """去重，过滤已爬取的内容"""
+    """去重，过滤已爬取的内容，并合并今日已存储的历史内容"""
     tracker = CrawlTracker()
+    vs = VectorStore()
     raw_items = state.get("raw_items", [])
     new_items = []
+    new_urls = set()
 
+    # 1. 处理本次新爬取的内容
     for item in raw_items:
         if tracker.is_crawled(item.source, item.url):
-            logger.info(f"{item.url}\({item.title}\)已爬取, 已忽略")
+            logger.info(f"{item.url}({item.title})已爬取, 已忽略")
             continue
         new_items.append(item)
+        new_urls.add(item.url)
         metadata = {}
         if hasattr(item, "feed_url"):
             metadata["feed_url"] = item.feed_url
         tracker.mark_crawled(item.source, item.url, metadata=metadata)
 
-    logger.info(f"去重完成: {len(raw_items)} 条原始内容 → {len(new_items)} 条新内容")
+    # 2. 合并今日在本次运行前已存储的历史内容
+    # 元数据从 SQLite 获取，内容从 VectorStore 获取
+    today_items = tracker.get_today_items("web")
+    today_article_ids = [f"web:{item['url']}" for item in today_items if item["url"] not in new_urls]
+
+    if today_article_ids:
+        # 从 VectorStore 获取内容（无 metadata）
+        stored_content = {item["id"]: item["document"] for item in vs.get_by_ids(today_article_ids)}
+        # 从 SQLite 获取元数据
+        stored_metadata = {item["article_id"]: item for item in tracker.get_articles_by_ids(today_article_ids)}
+
+        for article_id in today_article_ids:
+            url = article_id.split(":", 1)[1] if ":" in article_id else article_id
+            if url in new_urls:
+                continue
+
+            meta = stored_metadata.get(article_id, {})
+            doc = stored_content.get(article_id, "")
+            # 构建 ContentItem
+            from comp_synth.schemas.web import WebPageItem
+            historical_item = WebPageItem(
+                source=meta.get("source", "web"),
+                url=url,
+                title=meta.get("title", ""),
+                content=doc or "",
+                summary=meta.get("summary", ""),
+                collected_at=datetime.fromisoformat(meta.get("crawled_at", datetime.now().isoformat())),
+            )
+            new_items.append(historical_item)
+            new_urls.add(url)
+            logger.info(f"合并今日历史内容: {url}")
+
+    logger.info(f"去重完成: {len(raw_items)} 条原始内容 → {len(new_items)} 条最终内容")
     return {"new_items": new_items}
 
 
@@ -166,6 +202,7 @@ URL: {item.url}
 
 async def enrich(state: PipelineState) -> dict:
     """检索历史相关内容，并将新内容存入向量库"""
+    tracker = CrawlTracker()
     vs = VectorStore()
     topic_groups = state.get("topic_groups", [])
     new_items = state.get("new_items", [])
@@ -177,20 +214,33 @@ async def enrich(state: PipelineState) -> dict:
         query = f"{group['topic']}: {group['summary']}"
         results = vs.search(query, k=5)
         related = []
+        # 获取历史文章的元数据（从 SQLite）
+        result_ids = [r["id"] for r in results]
+        historical_metadata = {item["article_id"]: item for item in tracker.get_articles_by_ids(result_ids)}
+
         for r in results:
-            meta = r["metadata"]
-            if meta.get("url") not in current_urls:
+            article_id = r["id"]
+            url = article_id.split(":", 1)[1] if ":" in article_id else article_id
+            if url not in current_urls:
+                meta = historical_metadata.get(article_id, {})
                 related.append({
                     "title": meta.get("title", ""),
-                    "summary": r["document"][:200],
-                    "url": meta.get("url", ""),
+                    "summary": r["document"][:200] if r["document"] else "",
+                    "url": url,
                 })
         group["related_historical"] = related
 
-    # 存入新内容供未来检索
+    # 存入新内容：先保存元数据到 SQLite，再存入向量库
     if new_items:
+        for item in new_items:
+            tracker.save_article(
+                article_id=item.id,
+                title=item.title,
+                summary=item.summary,
+                content_hash=item.content_hash,
+            )
         vs.add(new_items)
-        logger.info(f"已将 {len(new_items)} 条新内容存入向量库")
+        logger.info(f"已将 {len(new_items)} 条新内容存入向量库和 SQLite")
 
     return {"topic_groups": topic_groups}
 

@@ -349,13 +349,16 @@ class AdaptiveWebCrawler(BaseCrawler):
             html = await self._fetch_html(url)
             result = await self._extract_with_readability(html)
             if result.get("content"):
-                return self._build_item(
+                item = self._build_item(
                     url=url,
                     title=result.get("title", ""),
                     content=result.get("content", ""),
                     summary=result.get("summary", ""),
                     site_name=self._detect_site(url),
                 )
+                # 标记为已爬取，避免后续重复爬取
+                self._tracker.mark_crawled("web", url)
+                return item
         except Exception as e:
             logger.warning(f"详情页爬取失败 {url}: {e}")
         return None
@@ -388,8 +391,14 @@ class AdaptiveWebCrawler(BaseCrawler):
             # 只有 summary 缺失或太短时才爬详情页
             if not self._is_summary_enough(item_summary):
                 logger.info(f"[列表条目 {i+1}] Summary 不足 ({summary_len} chars <= 100)，爬取详情页")
+                # 去重检查：详情页爬取前检查是否已爬过
+                if self._tracker.is_crawled("web", item_dict["url"]):
+                    logger.debug(f"详情页已爬取，跳过: {item_dict['url']}")
+                    continue
                 detail_item = await self._fetch_article_detail(item_dict["url"])
                 if detail_item:
+                    # 标记已爬取
+                    self._tracker.mark_crawled("web", detail_item.url)
                     logger.info(f"[列表条目 {i+1}] [Structured] {{title: {detail_item.title[:30]}..., content长度: {len(detail_item.content)}, summary长度: {len(detail_item.summary)}}}")
                     results.append(detail_item)
             else:
@@ -435,6 +444,8 @@ class AdaptiveWebCrawler(BaseCrawler):
                     site_name=site_name,
                 )
                 logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, content长度: {len(item.content)}, tags: {item.tags}}}")
+                # 标记已爬取
+                self._tracker.mark_crawled("web", url)
                 return [item]
 
         # === 步骤 1：readability 提取 ===
@@ -453,6 +464,8 @@ class AdaptiveWebCrawler(BaseCrawler):
                 site_name=site_name,
             )
             logger.info(f"[Structured] {{title: {item.title[:30]}..., content长度: {len(item.content)}, summary长度: {len(item.summary)}}}")
+            # 标记已爬取
+            self._tracker.mark_crawled("web", url)
             return [item]
 
         # === 步骤 2：尝试 Schema (CSS Selector) ===
@@ -471,6 +484,8 @@ class AdaptiveWebCrawler(BaseCrawler):
                     site_name=site_name,
                 )
                 logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, content长度: {len(item.content)}, tags: {item.tags}}}")
+                # 标记已爬取
+                self._tracker.mark_crawled("web", url)
                 return [item]
 
         # === 步骤 3：二次爬取 ===
@@ -492,6 +507,8 @@ class AdaptiveWebCrawler(BaseCrawler):
                         site_name=site_name,
                     )
                     logger.info(f"[Structured] {{title: {item.title[:30]}..., content长度: {len(item.content)}}}")
+                    # 标记已爬取
+                    self._tracker.mark_crawled("web", url)
                     return [item]
             except Exception as e:
                 logger.warning(f"二次爬取失败: {e}")
@@ -512,6 +529,8 @@ class AdaptiveWebCrawler(BaseCrawler):
                     site_name=site_name,
                 )
                 logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, content长度: {len(item.content)}, tags: {item.tags}}}")
+                # 标记已爬取
+                self._tracker.mark_crawled("web", url)
                 return [item]
 
         # === 最终保底：返回最低信息（url + title）===
@@ -525,6 +544,8 @@ class AdaptiveWebCrawler(BaseCrawler):
         )
         logger.info(f"[Structured] {{title: {item.title[:30] if item.title else 'N/A'}..., content: '' (保底)}}")
         logger.info(f"=== 详情页爬取结束 | 最终方法: {'user_selector' if user_selectors and schema_result.get('content') else 'readability' if has_content else 'db_selector' if schema and schema_result.get('content') else 'fetch_detail' if article_link else 'llm_learning' if self._schema_store.can_use_llm(site_name) else 'heuristic'} ===")
+        # 标记已爬取
+        self._tracker.mark_crawled("web", url)
         return [item]
 
     async def _learn_and_extract(self, html: str, site_name: str) -> dict[str, str]:
@@ -603,4 +624,8 @@ class AdaptiveWebCrawler(BaseCrawler):
             logger.info(f"检测到列表页: {url}")
             return await self._crawl_list_page(html, url, user_selectors)
         else:
+            # 直接爬取详情页前检查是否已爬过
+            if self._tracker.is_crawled("web", url):
+                logger.info(f"详情页已爬取，跳过: {url}")
+                return []
             return await self._crawl_detail_page(html, url, user_selectors)
