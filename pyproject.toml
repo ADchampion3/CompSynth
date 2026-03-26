@@ -27,4 +27,4 @@ dependencies = [
 ]
 
 [project.scripts]
-compsynth = "comp_synth.main:main"
+compsynth = "comp_synth.app.main:main"
