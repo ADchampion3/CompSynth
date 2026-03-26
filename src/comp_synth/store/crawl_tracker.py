@@ -25,8 +25,6 @@ class CrawlTracker:
                     title TEXT DEFAULT '',
                     url TEXT NOT NULL,
                     source TEXT NOT NULL,
-                    content_hash TEXT DEFAULT '',
-                    status TEXT DEFAULT 'success',
                     metadata TEXT DEFAULT '{}',
                     liked INTEGER DEFAULT 0
                 )
@@ -75,30 +73,30 @@ class CrawlTracker:
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                """SELECT article_id, source, url, crawled_at, summary, title, status, metadata FROM articles
+                """SELECT article_id, source, url, crawled_at, summary, title, metadata FROM articles
                    WHERE source = ? AND crawled_at LIKE ?""",
                 (source, f"{today}%"),
             ).fetchall()
             return [dict(row) for row in rows]
 
     def mark_crawled(
-        self, source: str, url: str, status: str = "success", metadata: dict | None = None
+        self, source: str, url: str, metadata: dict | None = None
     ) -> None:
         """标记 URL 为已爬取（仅保留兼容性，元数据请使用 save_article）"""
         article_id = f"{source}:{url}"
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO articles
-                   (article_id, vector_id, crawled_at, status, metadata, url, source)
+                   (article_id, vector_id, crawled_at, metadata, url, source, liked)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     article_id,
                     article_id,  # vector_id 默认等于 article_id
                     datetime.now().isoformat(),
-                    status,
                     json.dumps(metadata or {}),
                     url,
                     source,
+                    0,  # liked
                 ),
             )
 
@@ -107,8 +105,6 @@ class CrawlTracker:
         article_id: str,
         title: str = "",
         summary: str = "",
-        content_hash: str = "",
-        status: str = "success",
         metadata: dict | None = None,
     ) -> None:
         """保存文章元数据到 SQLite（向量数据已移至 ChromaDB）"""
@@ -116,8 +112,8 @@ class CrawlTracker:
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO articles
-                   (article_id, vector_id, crawled_at, summary, title, url, source, content_hash, status, metadata)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (article_id, vector_id, crawled_at, summary, title, url, source, metadata, liked)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     article_id,
                     article_id,  # vector_id
@@ -126,9 +122,8 @@ class CrawlTracker:
                     title,
                     url,
                     source,
-                    content_hash,
-                    status,
                     json.dumps(metadata or {}),
+                    0,  # liked
                 ),
             )
 
@@ -184,6 +179,6 @@ class CrawlTracker:
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT article_id, source, url, crawled_at, summary, title, status, metadata FROM articles WHERE liked = 1"
+                "SELECT article_id, source, url, crawled_at, summary, title, metadata FROM articles WHERE liked = 1"
             ).fetchall()
             return [dict(row) for row in rows]

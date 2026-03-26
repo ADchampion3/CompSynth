@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 import feedparser
 from bs4 import BeautifulSoup
+from loguru import logger
 
 from comp_synth.config import settings
 from comp_synth.crawler.base import BaseCrawler
@@ -53,14 +54,23 @@ class RSSCrawler(BaseCrawler):
             if cutoff and published_at and published_at < cutoff:
                 continue
 
+            url = entry.get("link", "")
+
+            # URL 去重检查
+            if tracker.is_crawled("rss", url):
+                logger.info(f"RSS: {url} 已爬取, 跳过")
+                continue
+
             item = RSSItem(
-                url=entry.get("link", ""),
+                id=f"rss:{url}",
+                url=url,
                 title=entry.get("title", ""),
-                content=self._extract_text(entry),
                 summary=entry.get("summary", ""),
                 published_at=published_at,
-                feed_url=feed_url,
+                metadata={"feed_url": feed_url},
             )
             items.append(item)
+            # 标记为已爬取（避免同一批次内重复）
+            tracker.mark_crawled("rss", url, metadata={"feed_url": feed_url})
 
         return items

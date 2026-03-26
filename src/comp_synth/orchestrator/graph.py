@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from langgraph.graph import END, StateGraph
 
+from comp_synth.config import settings
 from comp_synth.orchestrator.nodes import (
     deduplicate,
     enrich,
@@ -8,6 +11,13 @@ from comp_synth.orchestrator.nodes import (
     summarize,
 )
 from comp_synth.orchestrator.state import PipelineState
+
+
+def _has_last_digest() -> bool:
+    """检查是否有上一次的 digest 文件"""
+    output_dir = Path(settings.output_dir)
+    digest_files = list(output_dir.glob("digest_*.md"))
+    return len(digest_files) > 0
 
 
 def build_pipeline() -> StateGraph:
@@ -24,11 +34,18 @@ def build_pipeline() -> StateGraph:
     graph.add_edge("fetch_sources", "deduplicate")
 
     def should_continue(state: PipelineState) -> str:
-        return "summarize" if state.get("new_items") else "end"
+        new_items = state.get("raw_items", [])
+        if new_items:
+            return "summarize"
+        # 没有新内容但有上一次的 digest → 跳到 publish 复用
+        if _has_last_digest():
+            return "publish"
+        return "end"
 
     graph.add_conditional_edges("deduplicate", should_continue, {
         "end": END,
         "summarize": "summarize",
+        "publish": "publish",
     })
     graph.add_edge("summarize", "enrich")
     graph.add_edge("enrich", "publish")
