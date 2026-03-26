@@ -205,7 +205,7 @@ class AdaptiveWebCrawler(BaseCrawler):
                 for item in items:
                     if item.get("url"):
                         item["url"] = urljoin(base_url, item["url"])
-                return self._deduplicate_items(items)
+                return items
 
         # 步骤2：DB selectors
         logger.info("[Step 2] db_selector | 尝试 DB 中已存储的 list_selectors")
@@ -218,7 +218,7 @@ class AdaptiveWebCrawler(BaseCrawler):
                 for item in items:
                     if item.get("url"):
                         item["url"] = urljoin(base_url, item["url"])
-                return self._deduplicate_items(items)
+                return items
 
         # 步骤3：LLM 学习
         logger.info("[Step 3] llm_learning | 尝试 LLM 学习并提取")
@@ -230,7 +230,7 @@ class AdaptiveWebCrawler(BaseCrawler):
                 for item in llm_items:
                     if item.get("url"):
                         item["url"] = urljoin(base_url, item["url"])
-                return self._deduplicate_items(llm_items)
+                return llm_items
 
         # 步骤4：启发式后备
         logger.info("[Step 4] heuristic | 尝试启发式方法提取")
@@ -329,31 +329,26 @@ class AdaptiveWebCrawler(BaseCrawler):
                             "summary": summary,
                         })
 
-        return self._deduplicate_items(items)
+        return items
 
-    def _deduplicate_items(self, items: list[dict]) -> list[dict]:
-        """基于 URL 去重"""
-        seen_urls = set()
-        unique_items = []
-        for item in items:
-            if item["url"] not in seen_urls:
-                seen_urls.add(item["url"])
-                unique_items.append(item)
-        return unique_items
 
     async def _fetch_article_detail(self, url: str) -> WebPageItem | None:
         """
         获取文章详情页内容（使用现有提取逻辑）
         """
+        # 去重检查
+        if self._tracker.is_crawled("web", url):
+            logger.info(f"Web: {url} 已爬取, 跳过")
+            return None
         try:
             html = await self._fetch_html(url)
             result = await self._extract_with_readability(html)
+            summary_valid = result["summary"] and len(result["summary"]) > 100
             if result.get("content"):
                 item = self._build_item(
                     url=url,
                     title=result.get("title", ""),
-                    content=result.get("content", ""),
-                    summary=result.get("summary", ""),
+                    summary=result.get("summary") if summary_valid else result.get("content"),
                     site_name=self._detect_site(url),
                 )
                 # 标记为已爬取，避免后续重复爬取
@@ -399,14 +394,13 @@ class AdaptiveWebCrawler(BaseCrawler):
                 if detail_item:
                     # 标记已爬取
                     self._tracker.mark_crawled("web", detail_item.url)
-                    logger.info(f"[列表条目 {i+1}] [Structured] {{title: {detail_item.title[:30]}..., content长度: {len(detail_item.content)}, summary长度: {len(detail_item.summary)}}}")
+                    logger.info(f"[列表条目 {i+1}] [Structured] {{title: {detail_item.title[:30]}..., summary长度: {len(detail_item.summary)}}}")
                     results.append(detail_item)
             else:
                 # 直接使用列表页提取的元数据，不爬详情页
                 item = self._build_item(
                     url=item_dict["url"],
                     title=item_dict.get("title", ""),
-                    content="",  # 订阅场景不需要完整 content
                     summary=item_summary,
                     site_name=self._detect_site(item_dict["url"]),
                 )
@@ -438,12 +432,11 @@ class AdaptiveWebCrawler(BaseCrawler):
                 item = self._build_item(
                     url=url,
                     title=schema_result.get("title", ""),
-                    content=schema_result.get("content", ""),
                     author=schema_result.get("author", ""),
                     tags=schema_result.get("tags", []),
                     site_name=site_name,
                 )
-                logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, content长度: {len(item.content)}, tags: {item.tags}}}")
+                logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, tags: {item.tags}}}")
                 # 标记已爬取
                 self._tracker.mark_crawled("web", url)
                 return [item]
@@ -459,11 +452,10 @@ class AdaptiveWebCrawler(BaseCrawler):
             item = self._build_item(
                 url=url,
                 title=readability_result.get("title", ""),
-                content=readability_result.get("content", ""),
-                summary=readability_result.get("summary", ""),
+                summary=readability_result.get("content", ""),
                 site_name=site_name,
             )
-            logger.info(f"[Structured] {{title: {item.title[:30]}..., content长度: {len(item.content)}, summary长度: {len(item.summary)}}}")
+            logger.info(f"[Structured] {{title: {item.title[:30]}..., summary长度: {len(item.summary)}}}")
             # 标记已爬取
             self._tracker.mark_crawled("web", url)
             return [item]
@@ -478,12 +470,11 @@ class AdaptiveWebCrawler(BaseCrawler):
                 item = self._build_item(
                     url=url,
                     title=schema_result.get("title", "") or readability_result.get("title", ""),
-                    content=schema_result.get("content", ""),
                     author=schema_result.get("author", ""),
                     tags=schema_result.get("tags", []),
                     site_name=site_name,
                 )
-                logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, content长度: {len(item.content)}, tags: {item.tags}}}")
+                logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, tags: {item.tags}}}")
                 # 标记已爬取
                 self._tracker.mark_crawled("web", url)
                 return [item]
@@ -502,11 +493,10 @@ class AdaptiveWebCrawler(BaseCrawler):
                     item = self._build_item(
                         url=url,
                         title=readability_result.get("title", "") or detail_result.get("title", ""),
-                        content=detail_result.get("content", ""),
                         summary=detail_result.get("summary", ""),
                         site_name=site_name,
                     )
-                    logger.info(f"[Structured] {{title: {item.title[:30]}..., content长度: {len(item.content)}}}")
+                    logger.info(f"[Structured] {{title: {item.title[:30]}...}}")
                     # 标记已爬取
                     self._tracker.mark_crawled("web", url)
                     return [item]
@@ -523,12 +513,11 @@ class AdaptiveWebCrawler(BaseCrawler):
                 item = self._build_item(
                     url=url,
                     title=llm_result.get("title", "") or readability_result.get("title", ""),
-                    content=llm_result.get("content", ""),
                     author=llm_result.get("author", ""),
                     tags=llm_result.get("tags", []),
                     site_name=site_name,
                 )
-                logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, content长度: {len(item.content)}, tags: {item.tags}}}")
+                logger.info(f"[Structured] {{title: {item.title[:30]}..., author: {item.author}, tags: {item.tags}}}")
                 # 标记已爬取
                 self._tracker.mark_crawled("web", url)
                 return [item]
@@ -538,11 +527,10 @@ class AdaptiveWebCrawler(BaseCrawler):
         item = self._build_item(
             url=url,
             title=readability_result.get("title", "") or url,
-            content="",
             summary=readability_result.get("summary", ""),
             site_name=site_name,
         )
-        logger.info(f"[Structured] {{title: {item.title[:30] if item.title else 'N/A'}..., content: '' (保底)}}")
+        logger.info(f"[Structured] {{title: {item.title[:30] if item.title else 'N/A'}... (保底)}}")
         logger.info(f"=== 详情页爬取结束 | 最终方法: {'user_selector' if user_selectors and schema_result.get('content') else 'readability' if has_content else 'db_selector' if schema and schema_result.get('content') else 'fetch_detail' if article_link else 'llm_learning' if self._schema_store.can_use_llm(site_name) else 'heuristic'} ===")
         # 标记已爬取
         self._tracker.mark_crawled("web", url)
@@ -581,7 +569,6 @@ class AdaptiveWebCrawler(BaseCrawler):
         self,
         url: str,
         title: str = "",
-        content: str = "",
         summary: str = "",
         author: str = "",
         tags: list[str] | None = None,
@@ -589,9 +576,9 @@ class AdaptiveWebCrawler(BaseCrawler):
     ) -> WebPageItem:
         """构建 WebPageItem，最低保障 url + title"""
         return WebPageItem(
+            id=f"web:{url}",
             url=url,
             title=title or url,  # title 最低保障为 url
-            content=content,
             summary=summary,
             author=author,
             tags=tags or [],

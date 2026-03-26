@@ -286,10 +286,11 @@ class DOMExtractor:
     def to_web_page_item(self, url: str, extracted: dict[str, Any], site_name: str = "") -> WebPageItem:
         """将从 DOM 提取的数据转换为 WebPageItem"""
         return WebPageItem(
+            id=f"web:{url}",
             url=url,
             title=extracted.get("title", ""),
             author=extracted.get("author", ""),
-            content=extracted.get("content", ""),
+            summary=extracted.get("summary", ""),
             tags=extracted.get("tags", []),
             published_at=None,
             site_name=site_name,

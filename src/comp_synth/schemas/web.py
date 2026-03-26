@@ -1,5 +1,5 @@
 
-from pydantic import Field
+from typing import Any
 
 from comp_synth.schemas.base import ContentItem
 
@@ -8,11 +8,7 @@ class WebPageItem(ContentItem):
     """普通网页内容项"""
 
     source: str = "web"
-    description: str = ""
-    site_name: str = ""
     author: str = ""
-    tags: list[str] = Field(default_factory=list)
-
-    @property
-    def id(self):
-        return f"{self.source}:{self.url}"
+    tags: list[str] = []
+    site_name: str = ""
+    metadata: dict[str, Any] = {}

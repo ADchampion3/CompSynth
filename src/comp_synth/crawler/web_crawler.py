@@ -19,9 +19,10 @@ class WebCrawler(BaseCrawler):
         doc = Document(response.text)
 
         item = WebPageItem(
+            id=f"web:{url}",
             url=url,
             title=doc.short_title(),
-            content=doc.summary(),
+            summary=doc.summary(),
             site_name=source_config.get("site_name", ""),
         )
 

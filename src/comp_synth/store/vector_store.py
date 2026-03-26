@@ -24,8 +24,8 @@ class VectorStore:
             return
 
         self._collection.add(
-            ids=[item.id for item in items],
-            documents=[item.content for item in items],
+            ids=[item.vector_id or item.id for item in items],
+            documents=[f"{item.title}:{item.summary}" for item in items],
         )
 
     def search(self, query: str, k: int = 5) -> list[dict]:
