@@ -2,7 +2,7 @@ import os
 
 from dotenv import load_dotenv
 
-from comp_synth.llm import LLMRegistry
+from comp_synth.integrations.llm import LLMRegistry
 
 load_dotenv()
 

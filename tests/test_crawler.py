@@ -14,11 +14,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from loguru import logger
 
-from comp_synth.crawler.adaptive_crawler import AdaptiveWebCrawler
-from comp_synth.crawler.dom_extractor import DOMExtractor
-from comp_synth.crawler.schema_store import SchemaStore
-from comp_synth.crawler.site_schema import SiteSchema
-from comp_synth.schemas.web import WebPageItem
+from comp_synth.core.models.web import WebPageItem
+from comp_synth.integrations.crawlers.adaptive import AdaptiveWebCrawler
+from comp_synth.integrations.crawlers.extractors.dom import DOMExtractor
+from comp_synth.integrations.crawlers.schema_store import SchemaStore
+from comp_synth.integrations.crawlers.site_schema import SiteSchema
 
 # ============================================================================
 # Fixtures
@@ -29,7 +29,7 @@ def temp_db_path(monkeypatch):
     """使用临时数据库路径"""
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test_schemas.db"
-        monkeypatch.setattr("comp_synth.config.settings.site_schema_db_path", db_path)
+        monkeypatch.setattr("comp_synth.app.config.settings.site_schema_db_path", db_path)
         yield db_path
 
 
@@ -42,12 +42,12 @@ def mock_schema_store(monkeypatch):
     mock_store.save.return_value = None
     mock_store.mark_llm_called.return_value = None
     mock_store.update_list_selectors.return_value = None
-    monkeypatch.setattr("comp_synth.crawler.adaptive_crawler.SchemaStore", lambda: mock_store)
+    monkeypatch.setattr("comp_synth.integrations.crawlers.adaptive.SchemaStore", lambda: mock_store)
 
     mock_tracker = MagicMock()
     mock_tracker.is_crawled.return_value = False
     mock_tracker.mark_crawled.return_value = None
-    monkeypatch.setattr("comp_synth.crawler.adaptive_crawler.CrawlTracker", lambda: mock_tracker)
+    monkeypatch.setattr("comp_synth.integrations.crawlers.adaptive.CrawlTracker", lambda: mock_tracker)
 
     return mock_store
 
@@ -994,8 +994,8 @@ class TestAdaptiveWebCrawlerIntegration:
         """确保数据目录存在"""
         data_dir = Path("./data")
         data_dir.mkdir(exist_ok=True)
-        monkeypatch.setattr("comp_synth.config.settings.data_dir", data_dir)
-        monkeypatch.setattr("comp_synth.config.settings.site_schema_db_path", data_dir / "test_site_schemas.db")
+        monkeypatch.setattr("comp_synth.app.config.settings.data_dir", data_dir)
+        monkeypatch.setattr("comp_synth.app.config.settings.site_schema_db_path", data_dir / "test_site_schemas.db")
         yield
         # cleanup
         import time
@@ -1095,12 +1095,12 @@ class TestSchemaPersistenceAndReuse:
         data_dir.mkdir(parents=True, exist_ok=True)
 
         # 设置临时路径，但不 monkeypatch SchemaStore 类
-        monkeypatch.setattr("comp_synth.config.settings.site_schema_db_path", db_path)
-        monkeypatch.setattr("comp_synth.config.settings.data_dir", data_dir)
-        monkeypatch.setattr("comp_synth.config.settings.crawl_db_path", data_dir / "crawl_state.db")
+        monkeypatch.setattr("comp_synth.app.config.settings.site_schema_db_path", db_path)
+        monkeypatch.setattr("comp_synth.app.config.settings.data_dir", data_dir)
+        monkeypatch.setattr("comp_synth.app.config.settings.crawl_db_path", data_dir / "crawl_state.db")
 
         # 清除全局 crawler 实例的 schema_store 缓存，确保使用新 DB
-        from comp_synth.crawler import adaptive_crawler
+        from comp_synth.integrations.crawlers import adaptive_crawler
         adaptive_crawler.AdaptiveWebCrawler._schema_store = None
         adaptive_crawler.AdaptiveWebCrawler._tracker = None
 
@@ -1115,7 +1115,7 @@ class TestSchemaPersistenceAndReuse:
 
     def test_first_crawl_saves_schema(self):
         """测试首次爬取后 schema 被保存到数据库"""
-        from comp_synth.crawler.schema_store import SchemaStore
+        from comp_synth.integrations.crawlers.schema_store import SchemaStore
 
         async def run():
             site = "example.com"
@@ -1126,7 +1126,7 @@ class TestSchemaPersistenceAndReuse:
             assert store.can_use_llm(site) is True
 
             # 模拟一次 LLM 调用后的状态（直接保存 schema）
-            from comp_synth.crawler.site_schema import SiteSchema
+            from comp_synth.integrations.crawlers.site_schema import SiteSchema
             schema = SiteSchema(
                 site_name=site,
                 site_url=f"https://{site}",
@@ -1152,7 +1152,7 @@ class TestSchemaPersistenceAndReuse:
         策略：首次爬取用真实 LLM，第二次爬取时 mock LLM 并验证未被调用
         """
 
-        from comp_synth.crawler.schema_store import SchemaStore
+        from comp_synth.integrations.crawlers.schema_store import SchemaStore
 
         async def run():
             crawler = AdaptiveWebCrawler()
@@ -1209,7 +1209,7 @@ class TestSchemaPersistenceAndReuse:
 
     def test_schema_reuse_verification(self):
         """综合测试：验证 schema 被正确保存和复用"""
-        from comp_synth.crawler.schema_store import SchemaStore
+        from comp_synth.integrations.crawlers.schema_store import SchemaStore
 
         async def run():
             # 使用一个简单的测试页面
@@ -1257,7 +1257,7 @@ class TestSchemaPersistenceAndReuse:
         """
         import httpx
 
-        from comp_synth.crawler.dom_extractor import DOMExtractor
+        from comp_synth.integrations.crawlers.extractors.dom import DOMExtractor
 
         async def run():
             extractor = DOMExtractor()
@@ -1379,7 +1379,7 @@ class TestListPageExtraction:
 
             # Mock _fetch_article_detail 返回预设内容
             async def mock_detail(url):
-                from comp_synth.schemas.web import WebPageItem
+                from comp_synth.core.models.web import WebPageItem
                 return WebPageItem(
                     url=url,
                     title=f"详情页标题: {url}",
@@ -1419,7 +1419,7 @@ class TestListPageExtraction:
 
             # Mock _fetch_article_detail，如果被调用会返回预设内容
             async def mock_detail(url):
-                from comp_synth.schemas.web import WebPageItem
+                from comp_synth.core.models.web import WebPageItem
                 return WebPageItem(
                     url=url,
                     title=f"详情页标题: {url}",
@@ -1457,7 +1457,7 @@ class TestListPageExtraction:
 
     def test_extract_list_items_returns_empty_list(self):
         """测试 extract_list_items_with_selectors 返回空列表"""
-        from comp_synth.crawler.dom_extractor import DOMExtractor
+        from comp_synth.integrations.crawlers.extractors.dom import DOMExtractor
 
         extractor = DOMExtractor()
         html = "<html><body><div class='no-match'></div></body></html>"
@@ -1472,7 +1472,7 @@ class TestListPageExtraction:
 
     def test_has_valid_data(self):
         """测试 _has_valid_data 辅助方法正确识别有效/无效数据"""
-        from comp_synth.crawler.adaptive_crawler import AdaptiveWebCrawler
+        from comp_synth.integrations.crawlers.adaptive import AdaptiveWebCrawler
 
         crawler = AdaptiveWebCrawler()
 
@@ -1616,13 +1616,13 @@ class TestCrawlerExtractionMethods:
             db_path = Path(tmpdir) / "test_db_selector.db"
 
             # Patch settings to use temp DB
-            from comp_synth import config
+            from comp_synth.app import config
             original_db_path = config.settings.site_schema_db_path
             config.settings.site_schema_db_path = db_path
 
             try:
-                from comp_synth.crawler.schema_store import SchemaStore
-                from comp_synth.crawler.site_schema import SiteSchema
+                from comp_synth.integrations.crawlers.schema_store import SchemaStore
+                from comp_synth.integrations.crawlers.site_schema import SiteSchema
 
                 # 保存一个已知 schema 到 DB
                 store = SchemaStore()
