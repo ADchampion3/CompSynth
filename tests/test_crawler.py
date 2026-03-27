@@ -14,11 +14,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from loguru import logger
 
-from comp_synth.crawler.adaptive_crawler import AdaptiveWebCrawler
-from comp_synth.crawler.dom_extractor import DOMExtractor
-from comp_synth.crawler.schema_store import SchemaStore
-from comp_synth.crawler.site_schema import SiteSchema
-from comp_synth.schemas.web import WebPageItem
+from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
+from comp_synth.crawlers.extractors import DOMExtractor
+from comp_synth.schema.content_item import WebPageItem
+from comp_synth.schema.site_chema import SiteSchema
+from comp_synth.store.schema_store import SchemaStore
 
 # ============================================================================
 # Fixtures
@@ -42,12 +42,12 @@ def mock_schema_store(monkeypatch):
     mock_store.save.return_value = None
     mock_store.mark_llm_called.return_value = None
     mock_store.update_list_selectors.return_value = None
-    monkeypatch.setattr("comp_synth.crawler.adaptive_crawler.SchemaStore", lambda: mock_store)
+    monkeypatch.setattr("comp_synth.crawlers.adaptive_web_crawler.SchemaStore", lambda: mock_store)
 
     mock_tracker = MagicMock()
     mock_tracker.is_crawled.return_value = False
     mock_tracker.mark_crawled.return_value = None
-    monkeypatch.setattr("comp_synth.crawler.adaptive_crawler.CrawlTracker", lambda: mock_tracker)
+    monkeypatch.setattr("comp_synth.crawlers.adaptive_web_crawler.CrawlTracker", lambda: mock_tracker)
 
     return mock_store
 
@@ -914,34 +914,6 @@ class TestSchemaStore:
 # DOMExtractor Tests
 # ============================================================================
 
-class TestDOMExtractor:
-    """DOMExtractor 测试"""
-
-    def test_to_web_page_item(self):
-        """测试转换为 WebPageItem"""
-        extractor = DOMExtractor()
-
-        extracted = {
-            "title": "测试标题",
-            "author": "测试作者",
-            "content": "测试内容",
-            "tags": ["tag1", "tag2"],
-        }
-
-        item = extractor.to_web_page_item(
-            url="https://example.com/article",
-            extracted=extracted,
-            site_name="example.com",
-        )
-
-        assert isinstance(item, WebPageItem)
-        assert item.url == "https://example.com/article"
-        assert item.title == "测试标题"
-        assert item.author == "测试作者"
-        assert item.content == "测试内容"
-        assert len(item.tags) == 2
-
-
 # ============================================================================
 # AdaptiveWebCrawler Tests (Unit - with mocked SchemaStore)
 # ============================================================================
@@ -957,15 +929,6 @@ class TestAdaptiveWebCrawler:
         assert crawler._detect_site("https://blog.example.com/post/123") == "blog.example.com"
         assert crawler._detect_site("https://example.com") == "example.com"
 
-
-    def test_find_article_link(self, mock_schema_store, meituan_list_html):
-        """测试从列表页查找文章链接"""
-        async def run():
-            crawler = AdaptiveWebCrawler()
-            link = await crawler._find_article_link(meituan_list_html, "https://tech.meituan.com/")
-            assert link is not None
-
-        asyncio.run(run())
 
     def test_fetch_html_success(self, mock_schema_store):
         """测试成功获取 HTML"""
@@ -1100,9 +1063,9 @@ class TestSchemaPersistenceAndReuse:
         monkeypatch.setattr("comp_synth.config.settings.crawl_db_path", data_dir / "crawl_state.db")
 
         # 清除全局 crawler 实例的 schema_store 缓存，确保使用新 DB
-        from comp_synth.crawler import adaptive_crawler
-        adaptive_crawler.AdaptiveWebCrawler._schema_store = None
-        adaptive_crawler.AdaptiveWebCrawler._tracker = None
+        from comp_synth.crawlers import adaptive_web_crawler
+        adaptive_web_crawler.AdaptiveWebCrawler._schema_store = None
+        adaptive_web_crawler.AdaptiveWebCrawler._tracker = None
 
         yield db_path
 
@@ -1115,7 +1078,7 @@ class TestSchemaPersistenceAndReuse:
 
     def test_first_crawl_saves_schema(self):
         """测试首次爬取后 schema 被保存到数据库"""
-        from comp_synth.crawler.schema_store import SchemaStore
+        from comp_synth.store.schema_store import SchemaStore
 
         async def run():
             site = "example.com"
@@ -1126,7 +1089,7 @@ class TestSchemaPersistenceAndReuse:
             assert store.can_use_llm(site) is True
 
             # 模拟一次 LLM 调用后的状态（直接保存 schema）
-            from comp_synth.crawler.site_schema import SiteSchema
+            from comp_synth.schema.site_chema import SiteSchema
             schema = SiteSchema(
                 site_name=site,
                 site_url=f"https://{site}",
@@ -1152,7 +1115,7 @@ class TestSchemaPersistenceAndReuse:
         策略：首次爬取用真实 LLM，第二次爬取时 mock LLM 并验证未被调用
         """
 
-        from comp_synth.crawler.schema_store import SchemaStore
+        from comp_synth.store.schema_store import SchemaStore
 
         async def run():
             crawler = AdaptiveWebCrawler()
@@ -1209,7 +1172,7 @@ class TestSchemaPersistenceAndReuse:
 
     def test_schema_reuse_verification(self):
         """综合测试：验证 schema 被正确保存和复用"""
-        from comp_synth.crawler.schema_store import SchemaStore
+        from comp_synth.store.schema_store import SchemaStore
 
         async def run():
             # 使用一个简单的测试页面
@@ -1257,7 +1220,6 @@ class TestSchemaPersistenceAndReuse:
         """
         import httpx
 
-        from comp_synth.crawler.dom_extractor import DOMExtractor
 
         async def run():
             extractor = DOMExtractor()
@@ -1379,7 +1341,6 @@ class TestListPageExtraction:
 
             # Mock _fetch_article_detail 返回预设内容
             async def mock_detail(url):
-                from comp_synth.schemas.web import WebPageItem
                 return WebPageItem(
                     url=url,
                     title=f"详情页标题: {url}",
@@ -1419,7 +1380,6 @@ class TestListPageExtraction:
 
             # Mock _fetch_article_detail，如果被调用会返回预设内容
             async def mock_detail(url):
-                from comp_synth.schemas.web import WebPageItem
                 return WebPageItem(
                     url=url,
                     title=f"详情页标题: {url}",
@@ -1457,7 +1417,6 @@ class TestListPageExtraction:
 
     def test_extract_list_items_returns_empty_list(self):
         """测试 extract_list_items_with_selectors 返回空列表"""
-        from comp_synth.crawler.dom_extractor import DOMExtractor
 
         extractor = DOMExtractor()
         html = "<html><body><div class='no-match'></div></body></html>"
@@ -1472,7 +1431,7 @@ class TestListPageExtraction:
 
     def test_has_valid_data(self):
         """测试 _has_valid_data 辅助方法正确识别有效/无效数据"""
-        from comp_synth.crawler.adaptive_crawler import AdaptiveWebCrawler
+        from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
 
         crawler = AdaptiveWebCrawler()
 
@@ -1557,8 +1516,8 @@ class TestCrawlerExtractionMethods:
         async def run():
 
             # 使用随机site name避免DB中的旧数据干扰
-            site_name = f"llm-test-{id(self)}.com"
-            url = f"https://{site_name}/llm-test"
+            site_name = f"llm_provider-test-{id(self)}.com"
+            url = f"https://{site_name}/llm_provider-test"
 
             crawler = AdaptiveWebCrawler()
 
@@ -1621,8 +1580,8 @@ class TestCrawlerExtractionMethods:
             config.settings.site_schema_db_path = db_path
 
             try:
-                from comp_synth.crawler.schema_store import SchemaStore
-                from comp_synth.crawler.site_schema import SiteSchema
+                from comp_synth.schema.site_chema import SiteSchema
+                from comp_synth.store.schema_store import SchemaStore
 
                 # 保存一个已知 schema 到 DB
                 store = SchemaStore()

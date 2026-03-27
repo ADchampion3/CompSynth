@@ -9,15 +9,6 @@ class SiteSchema(BaseModel):
     site_name: str = ""
     site_url: str = ""
     selectors: dict[str, str] = Field(default_factory=dict)
-    # 详情页 CSS 选择器映射，例如:
-    # {
-    #     "title": "article h1.title",
-    #     "author": ".author-name",
-    #     "published_at": "time[datetime]",
-    #     "content": "article .post-content",
-    #     "tags": ".tags .tag"
-    # }
-    list_selectors: dict[str, str] = Field(default_factory=dict)
     # 列表页 CSS 选择器映射，例如:
     # {
     #     "item_container": "article.post-item",

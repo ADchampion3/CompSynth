@@ -1,12 +1,12 @@
-from datetime import datetime, timedelta
+from datetime import datetime
+from urllib.parse import urljoin
 
 import feedparser
 from bs4 import BeautifulSoup
 from loguru import logger
 
-from comp_synth.config import settings
-from comp_synth.crawler.base import BaseCrawler
-from comp_synth.schemas.rss import RSSItem
+from comp_synth.crawlers.base import BaseCrawler
+from comp_synth.schema.content_item import RSSItem
 from comp_synth.store.crawl_tracker import CrawlTracker
 
 
@@ -38,12 +38,6 @@ class RSSCrawler(BaseCrawler):
         feed = feedparser.parse(feed_url)
 
         tracker = CrawlTracker()
-        last_crawl = tracker.get_last_crawl_time("rss", feed_url)
-        cutoff = (
-            last_crawl - timedelta(days=settings.rss_lookback_days)
-            if last_crawl
-            else None
-        )
 
         items = []
         for entry in feed.entries:
@@ -51,10 +45,11 @@ class RSSCrawler(BaseCrawler):
             if hasattr(entry, "published") and entry.published:
                 published_at = datetime(*entry.published_parsed[:6])
 
-            if cutoff and published_at and published_at < cutoff:
+            if entry.get("link") == "":
                 continue
 
-            url = entry.get("link", "")
+            url = entry.get("link")
+            url = urljoin(source_config["url"], url)
 
             # URL 去重检查
             if tracker.is_crawled("rss", url):
@@ -62,15 +57,24 @@ class RSSCrawler(BaseCrawler):
                 continue
 
             item = RSSItem(
-                id=f"rss:{url}",
                 url=url,
                 title=entry.get("title", ""),
                 summary=entry.get("summary", ""),
                 published_at=published_at,
-                metadata={"feed_url": feed_url},
             )
             items.append(item)
-            # 标记为已爬取（避免同一批次内重复）
-            tracker.mark_crawled("rss", url, metadata={"feed_url": feed_url})
+
+        # 批量保存（避免同一批次内重复已在上面通过 is_crawled 检查保证）
+        if items:
+            tracker.save_articles([
+                {
+                    "article_id": item.id,
+                    "title": item.title,
+                    "summary": item.summary,
+                    "published_at": item.published_at.isoformat() if item.published_at else None,
+                    "metadata": {"feed_url": feed_url},
+                }
+                for item in items
+            ])
 
         return items

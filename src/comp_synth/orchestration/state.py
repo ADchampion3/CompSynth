@@ -1,6 +1,6 @@
 from typing import TypedDict
 
-from comp_synth.schemas.base import ContentItem
+from comp_synth.schema.content_item import ContentItem
 
 
 class TopicGroup(TypedDict):

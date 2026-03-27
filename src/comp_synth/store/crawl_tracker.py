@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from comp_synth.config import settings
 
@@ -20,7 +20,9 @@ class CrawlTracker:
                 CREATE TABLE IF NOT EXISTS articles (
                     article_id TEXT PRIMARY KEY,      -- e.g., "web:https://example.com/article"
                     vector_id TEXT NOT NULL,            -- ChromaDB ID (同article_id)
-                    crawled_at TEXT NOT NULL,
+                    crawled_at TIMESTAMP NOT NULL,
+                    published_at TIMESTAMP,
+                    content TEXT DEFAULT '',
                     summary TEXT DEFAULT '',
                     title TEXT DEFAULT '',
                     url TEXT NOT NULL,
@@ -33,7 +35,6 @@ class CrawlTracker:
             for col, default in [
                 ("summary", "''"),
                 ("title", "''"),
-                ("content_hash", "''"),
                 ("vector_id", "article_id"),
             ]:
                 try:
@@ -44,6 +45,18 @@ class CrawlTracker:
                 conn.execute("ALTER TABLE articles ADD COLUMN liked INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
+            # 旧版本拼写错误迁移：pulished_at -> published_at
+            try:
+                conn.execute("ALTER TABLE articles ADD COLUMN published_at TIMESTAMP")
+                # 如果旧表有 pulished_at 列，迁移数据
+                try:
+                    rows = conn.execute("SELECT article_id, pulished_at FROM articles WHERE pulished_at IS NOT NULL AND pulished_at != ''").fetchall()
+                    for article_id, pulished_at in rows:
+                        conn.execute("UPDATE articles SET published_at = ? WHERE article_id = ?", (pulished_at, article_id))
+                except sqlite3.OperationalError:
+                    pass  # pulished_at 列不存在，无需迁移
+            except sqlite3.OperationalError:
+                pass  # published_at 列已存在
 
     def is_crawled(self, source: str, url: str) -> bool:
         """检查 URL 是否已被爬取"""
@@ -64,60 +77,44 @@ class CrawlTracker:
                 (source, feed_url),
             ).fetchone()
             if row and row[0]:
-                return datetime.fromisoformat(row[0])
+                dt = datetime.fromisoformat(row[0])
+                return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
             return None
 
     def get_today_items(self, source: str) -> list[dict]:
         """获取今天爬取过的所有 items"""
-        today = datetime.now().date().isoformat()
+        today = datetime.now(timezone.utc).date().isoformat()
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                """SELECT article_id, source, url, crawled_at, summary, title, metadata FROM articles
+                """SELECT article_id, source, url, crawled_at, summary, title, metadata, content FROM articles
                    WHERE source = ? AND crawled_at LIKE ?""",
                 (source, f"{today}%"),
             ).fetchall()
             return [dict(row) for row in rows]
 
-    def mark_crawled(
-        self, source: str, url: str, metadata: dict | None = None
-    ) -> None:
-        """标记 URL 为已爬取（仅保留兼容性，元数据请使用 save_article）"""
-        article_id = f"{source}:{url}"
-        with sqlite3.connect(self._db_path) as conn:
-            conn.execute(
-                """INSERT OR REPLACE INTO articles
-                   (article_id, vector_id, crawled_at, metadata, url, source, liked)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    article_id,
-                    article_id,  # vector_id 默认等于 article_id
-                    datetime.now().isoformat(),
-                    json.dumps(metadata or {}),
-                    url,
-                    source,
-                    0,  # liked
-                ),
-            )
-
     def save_article(
         self,
         article_id: str,
-        title: str = "",
-        summary: str = "",
+        title: str,
+        summary: str,
+        content: str = "",
         metadata: dict | None = None,
+        published_at: str | None = None,
     ) -> None:
         """保存文章元数据到 SQLite（向量数据已移至 ChromaDB）"""
         source, url = article_id.split(":", 1) if ":" in article_id else ("unknown", article_id)
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO articles
-                   (article_id, vector_id, crawled_at, summary, title, url, source, metadata, liked)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (article_id, vector_id, crawled_at, published_at, content, summary, title, url, source, metadata, liked)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     article_id,
                     article_id,  # vector_id
-                    datetime.now().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
+                    published_at,
+                    content,
                     summary,
                     title,
                     url,
@@ -125,6 +122,35 @@ class CrawlTracker:
                     json.dumps(metadata or {}),
                     0,  # liked
                 ),
+            )
+
+    def save_articles(self, items: list[dict]) -> None:
+        """批量保存文章元数据到 SQLite（单连接单事务）"""
+        if not items:
+            return
+        records = []
+        for item in items:
+            article_id = item["article_id"]
+            source, url = article_id.split(":", 1) if ":" in article_id else ("unknown", article_id)
+            records.append((
+                article_id,
+                article_id,
+                datetime.now(timezone.utc).isoformat(),
+                item.get("published_at"),
+                item.get("content", ""),
+                item.get("summary", ""),
+                item.get("title", ""),
+                url,
+                source,
+                json.dumps(item.get("metadata") or {}),
+                0,
+            ))
+        with sqlite3.connect(self._db_path) as conn:
+            conn.executemany(
+                """INSERT OR REPLACE INTO articles
+                   (article_id, vector_id, crawled_at, published_at, content, summary, title, url, source, metadata, liked)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                records,
             )
 
     def get_article_by_id(self, article_id: str) -> dict | None:
@@ -155,7 +181,7 @@ class CrawlTracker:
     def get_expired_article_ids(self, ttl_days: int = 30) -> list[str]:
         """获取超过 TTL 的文章 ID（用于清理向量库）"""
         cutoff = (
-            datetime.now() - timedelta(days=ttl_days)
+            datetime.now(timezone.utc) - timedelta(days=ttl_days)
         ).isoformat()
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -179,6 +205,6 @@ class CrawlTracker:
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT article_id, source, url, crawled_at, summary, title, metadata FROM articles WHERE liked = 1"
+                "SELECT article_id, source, url, crawled_at, summary, title, content,metadata FROM articles WHERE liked = 1"
             ).fetchall()
             return [dict(row) for row in rows]

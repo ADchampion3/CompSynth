@@ -1,8 +1,7 @@
-
 import chromadb
 
 from comp_synth.config import settings
-from comp_synth.schemas.base import ContentItem
+from comp_synth.schema.content_item import ContentItem
 
 
 class VectorStore:
@@ -24,17 +23,17 @@ class VectorStore:
             return
 
         self._collection.add(
-            ids=[item.vector_id or item.id for item in items],
-            documents=[f"{item.title}:{item.summary}" for item in items],
+            ids=[item.id for item in items],
+            documents=[f"{item.title}:{item.summary}:{item.content}" for item in items],
         )
 
     def search(self, query: str, k: int = 5) -> list[dict]:
         """语义搜索相关内容（metadata为空，元数据需从SQLite查询）"""
         results = self._collection.query(query_texts=[query], n_results=k)
         return [
-            {"id": id_, "document": doc, "metadata": meta}
-            for id_, doc, meta in zip(
-                results["ids"][0], results["documents"][0], results["metadatas"][0]
+            {"id": id_, "document": doc}
+            for id_, doc in zip(
+                results["ids"][0], results["documents"][0]
             )
         ]
 
@@ -45,9 +44,9 @@ class VectorStore:
 
         results = self._collection.get(ids=ids)
         return [
-            {"id": id_, "document": doc, "metadata": meta}
-            for id_, doc, meta in zip(
-                results["ids"], results["documents"], results["metadatas"]
+            {"id": id_, "document": doc}
+            for id_, doc in zip(
+                results["ids"], results["documents"]
             )
         ]
 

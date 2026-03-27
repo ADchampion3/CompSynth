@@ -3,14 +3,14 @@ from pathlib import Path
 from langgraph.graph import END, StateGraph
 
 from comp_synth.config import settings
-from comp_synth.orchestrator.nodes import (
+from comp_synth.orchestration.nodes import (
     deduplicate,
     enrich,
     fetch_sources,
     publish,
     summarize,
 )
-from comp_synth.orchestrator.state import PipelineState
+from comp_synth.orchestration.state import PipelineState
 
 
 def _has_last_digest() -> bool:

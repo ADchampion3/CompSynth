@@ -7,10 +7,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
 
 from comp_synth.config import settings
-from comp_synth.crawler.adaptive_crawler import AdaptiveWebCrawler
-from comp_synth.crawler.rss_crawler import RSSCrawler
-from comp_synth.llm.registry import LLMRegistry
-from comp_synth.orchestrator.state import PipelineState
+from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
+from comp_synth.crawlers.rss import RSSCrawler
+from comp_synth.llm_provider.registry import llm_registry
+from comp_synth.orchestration.state import PipelineState
+from comp_synth.prompt import CONTENT_ANALYST_PROMPT, REPORT_GENERATOR_PROMPT
+from comp_synth.schema.content_item import WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.vector_store import VectorStore
 
@@ -44,7 +46,7 @@ async def fetch_sources(state: PipelineState) -> dict:
             logger.info(f"从 {source.get('name', source['url'])} 获取到 {len(items)} 条内容")
         except Exception as e:
             msg = f"爬取 {source.get('url')} 失败: {e}"
-            logger.error(msg)
+            logger.exception(e)
             errors.append(msg)
 
     return {"sources": sources, "raw_items": all_items, "errors": errors}
@@ -53,22 +55,14 @@ async def fetch_sources(state: PipelineState) -> dict:
 async def deduplicate(state: PipelineState) -> dict:
     """去重，过滤已爬取的内容，并合并今日已存储的历史内容"""
     tracker = CrawlTracker()
-    vs = VectorStore()
     raw_items = state.get("raw_items", [])
     new_items = []
     new_urls = set()
 
     # 1. 处理本次新爬取的内容
     for item in raw_items:
-        if tracker.is_crawled(item.source, item.url):
-            logger.info(f"{item.url}({item.title})已爬取, 已忽略")
-            continue
         new_items.append(item)
         new_urls.add(item.url)
-        metadata = {}
-        if hasattr(item, "feed_url"):
-            metadata["feed_url"] = item.feed_url
-        tracker.mark_crawled(item.source, item.url, metadata=metadata)
 
     # 2. 合并今日在本次运行前已存储的历史内容
     # 元数据从 SQLite 获取，内容从 VectorStore 获取
@@ -76,8 +70,6 @@ async def deduplicate(state: PipelineState) -> dict:
     today_article_ids = [f"web:{item['url']}" for item in today_items if item["url"] not in new_urls]
 
     if today_article_ids:
-        # 从 VectorStore 获取内容（无 metadata）
-        stored_content = {item["id"]: item["document"] for item in vs.get_by_ids(today_article_ids)}
         # 从 SQLite 获取元数据
         stored_metadata = {item["article_id"]: item for item in tracker.get_articles_by_ids(today_article_ids)}
 
@@ -87,14 +79,10 @@ async def deduplicate(state: PipelineState) -> dict:
                 continue
 
             meta = stored_metadata.get(article_id, {})
-            doc = stored_content.get(article_id, "")
-            # 构建 ContentItem
-            from comp_synth.schemas.web import WebPageItem
             historical_item = WebPageItem(
                 source=meta.get("source", "web"),
                 url=url,
                 title=meta.get("title", ""),
-                content=doc or "",
                 summary=meta.get("summary", ""),
                 collected_at=datetime.fromisoformat(meta.get("crawled_at", datetime.now().isoformat())),
             )
@@ -112,55 +100,22 @@ async def summarize(state: PipelineState) -> dict:
     if not new_items:
         return {"topic_groups": [], "report": ""}
 
-    llm = LLMRegistry({
-        "openai_api_key": settings.openai_api_key,
-        "openai_base_url": settings.openai_base_url,
-        "model": settings.model,
-    }).get(settings.model)
+    llm = llm_registry.get(settings.model)
 
     # 构建文章列表
     articles_text = ""
     for i, item in enumerate(new_items, 1):
-        content_preview = item.content[:1500] if item.content else ""
         articles_text += f"""
 ---
 文章 {i}:
 标题: {item.title}
 URL: {item.url}
 摘要: {item.summary}
-内容: {content_preview}
 ---
 """
-
-    system_prompt = """你是一个内容分析师。你将收到一组文章。
-你的任务：
-1. 将它们按主题/话题分组（创建有意义的主题名称）。
-2. 为每个主题写一段简洁的总结（2-3 句话概括关键要点）。
-3. 为每个主题下的每篇文章写一句话总结。
-
-以如下 JSON 格式回复：
-{
-  "topics": [
-    {
-      "topic": "主题名称",
-      "summary": "主题整体总结...",
-      "articles": [
-        {"index": 1, "title": "...", "summary": "一句话总结", "url": "..."}
-      ]
-    }
-  ]
-}
-
-规则：
-- 每篇文章必须出现在恰好一个主题中。
-- 如果文章之间没有共同主题，每篇单独一个主题。
-- 使用原始文章的标题和 URL，不要修改。
-- 总结要简洁且有信息量。
-- 仅回复 JSON，不要 markdown 代码块。"""
-
     logger.info(f"正在使用 LLM 总结 {len(new_items)} 篇文章...")
     response = await llm.ainvoke([
-        SystemMessage(content=system_prompt),
+        SystemMessage(content=CONTENT_ANALYST_PROMPT),
         HumanMessage(content=f"以下是 {len(new_items)} 篇文章，请分析：\n{articles_text}"),
     ])
 
@@ -232,13 +187,6 @@ async def enrich(state: PipelineState) -> dict:
 
     # 存入新内容：先保存元数据到 SQLite，再存入向量库
     if new_items:
-        for item in new_items:
-            tracker.save_article(
-                article_id=item.id,
-                title=item.title,
-                summary=item.summary,
-                content_hash=item.content_hash,
-            )
         vs.add(new_items)
         logger.info(f"已将 {len(new_items)} 条新内容存入向量库和 SQLite")
 
@@ -246,38 +194,41 @@ async def enrich(state: PipelineState) -> dict:
 
 
 async def publish(state: PipelineState) -> dict:
-    """生成 Markdown 报告并写入文件"""
+    """使用 LLM 生成结构化 Markdown 报告并写入文件"""
     topic_groups = state.get("topic_groups", [])
     if not topic_groups:
         return {"report": "", "publish_results": {"status": "skipped", "reason": "无内容"}}
 
+    llm = llm_registry.get(settings.model)
+
+    # 构建主题分组文本
     date_str = datetime.now().strftime("%Y-%m-%d")
-    lines = [f"# 内容摘要 - {date_str}\n"]
+    groups_text = f"## 日期: {date_str}\n\n"
 
-    for group in topic_groups:
-        lines.append(f"## {group['topic']}\n")
-        lines.append(f"{group['summary']}\n")
-
-        lines.append("### 文章\n")
+    for i, group in enumerate(topic_groups, 1):
+        groups_text += f"### 主题 {i}: {group['topic']}\n"
+        groups_text += f"#### 主题概要: {group['summary']}\n\n"
+        groups_text += "#### 文章列表:\n"
         for art in group["articles"]:
-            lines.append(f"- **[{art['title']}]({art['url']})**")
-            if art.get("summary"):
-                lines.append(f"  {art['summary']}\n")
+            groups_text += f"- title: {art['title']}\n  url: {art['url']}\n  summary: {art.get('summary', '')}\n"
 
         if group.get("related_historical"):
-            lines.append("### 相关历史内容\n")
+            groups_text += "\n#### 相关历史内容:\n"
             for rel in group["related_historical"]:
-                lines.append(f"- [{rel['title']}]({rel['url']})")
-                if rel.get("summary"):
-                    lines.append(f"  {rel['summary']}\n")
+                groups_text += f"- title: {rel['title']}\n  url: {rel['url']}\n  summary: {rel.get('summary', '')}\n"
+        groups_text += "\n"
 
-        lines.append("---\n")
+    logger.info(f"正在使用 LLM 生成报告 ({len(topic_groups)} 个主题)...")
+    response = await llm.ainvoke([
+        SystemMessage(content=REPORT_GENERATOR_PROMPT),
+        HumanMessage(content=f"请根据以下主题分组信息生成报告：\n\n{groups_text}"),
+    ])
 
-    report = "\n".join(lines)
+    report = response.content
 
     output_dir = Path(settings.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d")
     output_path = output_dir / f"digest_{timestamp}.md"
     output_path.write_text(report, encoding="utf-8")
 

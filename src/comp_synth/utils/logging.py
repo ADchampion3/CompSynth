@@ -53,5 +53,5 @@ logger.add(
     encoding="utf-8",
     enqueue=True,
     backtrace=True,
-    diagnose=False,
+    diagnose=True,
 )

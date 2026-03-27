@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from comp_synth.schemas.base import ContentItem
+from comp_synth.schema.content_item import ContentItem
 
 
 class BaseCrawler(ABC):

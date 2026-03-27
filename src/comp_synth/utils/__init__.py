@@ -1,3 +1,3 @@
-from comp_synth.utils.logger_config import logger
+from comp_synth.utils.logging import logger
 
-__all__ = [logger]
+__all__ = ["logger"]

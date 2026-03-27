@@ -1,5 +1,7 @@
 from langchain_core.language_models import BaseChatModel
 
+from comp_synth.config import settings
+
 
 class LLMRegistry:
     """LLM 注册表，管理多个 LLM provider 实例"""
@@ -34,8 +36,10 @@ class LLMRegistry:
         """
         self._providers[name] = self._create_provider(provider_config)
 
-    def get(self, name: str) -> BaseChatModel:
+    def get(self, name: str = None) -> BaseChatModel:
         """获取已注册的 provider 实例"""
+        if name is None:
+            return self._providers[settings.model]
         if name not in self._providers:
             raise KeyError(f"LLM provider '{name}' 未注册")
         return self._providers[name]
@@ -77,3 +81,5 @@ class LLMRegistry:
             )
         else:
             raise ValueError(f"不支持的 provider 类型: {provider_type}")
+
+llm_registry = LLMRegistry(settings.dict())

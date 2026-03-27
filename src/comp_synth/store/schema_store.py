@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from comp_synth.config import settings
-from comp_synth.crawler.site_schema import SiteSchema
+from comp_synth.schema.site_chema import SiteSchema
 
 
 class SchemaStore:
@@ -28,7 +28,6 @@ class SchemaStore:
                     list_selectors TEXT DEFAULT '{}'
                 )
             """)
-            # 迁移：添加 list_selectors 列（如果不存在）
             try:
                 conn.execute("ALTER TABLE site_schemas ADD COLUMN list_selectors TEXT DEFAULT '{}'")
             except sqlite3.OperationalError:
@@ -50,31 +49,27 @@ class SchemaStore:
                 created_at=datetime.fromisoformat(row[3]),
                 updated_at=datetime.fromisoformat(row[4]),
                 last_llm_call=datetime.fromisoformat(row[5]) if row[5] else None,
-                list_selectors=json.loads(row[6]) if len(row) > 6 and row[6] else {},
             )
 
     def save(self, schema: SiteSchema) -> None:
         """保存或更新 Schema，created_at 仅在首次创建时设置"""
         with sqlite3.connect(self._db_path) as conn:
             existing = conn.execute(
-                "SELECT created_at, list_selectors FROM site_schemas WHERE site_name = ?",
+                "SELECT created_at, selectors FROM site_schemas WHERE site_name = ?",
                 (schema.site_name,),
             ).fetchone()
 
             if existing:
                 # UPDATE - 保留 created_at 和已有的 list_selectors（避免覆盖）
-                existing_list_selectors = json.loads(existing[1]) if existing[1] else {}
-                list_selectors_to_save = schema.list_selectors if schema.list_selectors else existing_list_selectors
                 conn.execute(
                     """UPDATE site_schemas
-                       SET site_url = ?, selectors = ?, updated_at = ?, last_llm_call = ?, list_selectors = ?
+                       SET site_url = ?, selectors = ?, updated_at = ?, last_llm_call = ?
                        WHERE site_name = ?""",
                     (
                         schema.site_url,
                         json.dumps(schema.selectors),
                         datetime.now().isoformat(),
                         schema.last_llm_call.isoformat() if schema.last_llm_call else None,
-                        json.dumps(list_selectors_to_save),
                         schema.site_name,
                     ),
                 )
@@ -82,8 +77,8 @@ class SchemaStore:
                 # INSERT
                 conn.execute(
                     """INSERT INTO site_schemas
-                       (site_name, site_url, selectors, created_at, updated_at, last_llm_call, list_selectors)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       (site_name, site_url, selectors, created_at, updated_at, last_llm_call)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
                     (
                         schema.site_name,
                         schema.site_url,
@@ -91,7 +86,6 @@ class SchemaStore:
                         datetime.now().isoformat(),
                         datetime.now().isoformat(),
                         schema.last_llm_call.isoformat() if schema.last_llm_call else None,
-                        json.dumps(schema.list_selectors),
                     ),
                 )
 
@@ -108,6 +102,16 @@ class SchemaStore:
             last_call = datetime.fromisoformat(row[0])
             return (datetime.now() - last_call) > timedelta(hours=24)
 
+    def update_selectors(self, site_name: str, selectors: dict[str, str]) -> None:
+        """更新指定站点的 selectors"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                """UPDATE site_schemas
+                   SET selectors = ?, updated_at = ?
+                   WHERE site_name = ?""",
+                (json.dumps(selectors), datetime.now().isoformat(), site_name),
+            )
+
     def mark_llm_called(self, site_name: str) -> None:
         """标记该站点已调用 LLM（直接 UPDATE）"""
         with sqlite3.connect(self._db_path) as conn:
@@ -117,44 +121,3 @@ class SchemaStore:
                    WHERE site_name = ?""",
                 (datetime.now().isoformat(), datetime.now().isoformat(), site_name),
             )
-
-    def update_selectors(self, site_name: str, selectors: dict[str, str]) -> None:
-        """更新站点的 CSS selectors（直接 UPDATE）"""
-        with sqlite3.connect(self._db_path) as conn:
-            conn.execute(
-                """UPDATE site_schemas
-                   SET selectors = ?, updated_at = ?
-                   WHERE site_name = ?""",
-                (json.dumps(selectors), datetime.now().isoformat(), site_name),
-            )
-
-    def update_list_selectors(self, site_name: str, list_selectors: dict[str, str]) -> None:
-        """更新站点的列表页 CSS selectors（UPDATE 或 INSERT）"""
-        with sqlite3.connect(self._db_path) as conn:
-            existing = conn.execute(
-                "SELECT site_name FROM site_schemas WHERE site_name = ?",
-                (site_name,),
-            ).fetchone()
-
-            if existing:
-                conn.execute(
-                    """UPDATE site_schemas
-                       SET list_selectors = ?, updated_at = ?
-                       WHERE site_name = ?""",
-                    (json.dumps(list_selectors), datetime.now().isoformat(), site_name),
-                )
-            else:
-                # 站点不存在，先创建基础记录
-                conn.execute(
-                    """INSERT INTO site_schemas
-                       (site_name, site_url, selectors, created_at, updated_at, list_selectors)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (
-                        site_name,
-                        f"https://{site_name}",
-                        json.dumps({}),
-                        datetime.now().isoformat(),
-                        datetime.now().isoformat(),
-                        json.dumps(list_selectors),
-                    ),
-                )
