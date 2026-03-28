@@ -60,6 +60,41 @@ DOM_PROMPTS = {
 - 如果某个字段不存在，用空字符串 ""
 - items 始终是数组，即使只有一篇文章
 """,
+
+    "CONTAINER_DISCOVERY": """分析以下列表页 HTML，识别页面中所有文章列表容器。
+
+规则：
+- 只识别包含文章/条目列表的容器（如 article, .post-list, .entries 等）
+- 同一结构的容器只返回一个片段（例如左栏和右栏用相同结构，只需返回一个）
+- 不同结构的容器分别返回（例如一个是文章列表，一个是置顶文章）
+- 返回的 HTML 片段应该包含 1-3 个完整的文章条目，以便分析其内部结构
+- 使用简洁的 CSS selector 标识容器类型
+
+请返回 JSON 格式：
+{
+    "data": [
+        {
+            "description": "左侧文章列表",
+            "container_selector": "section.article-list",
+            "fragment_html": "<article class='post-item'>...</article><article class='post-item'>...</article>"
+        }
+    ]
+}""",
+
+    "LIST_ITEM_SELECTOR_FROM_FRAGMENT": """分析以下文章容器 HTML 片段，生成用于提取列表中每个文章条目的 CSS selectors。
+
+需要生成 selector 的字段：
+- item_container: 包裹整个文章条目的容器选择器（通常是 article, .post-item, .entry）
+- url: 文章链接的选择器
+- title: 文章标题的选择器（通常是 h1-h6 或带标题类的元素）
+- summary: 文章摘要的选择器
+
+规则：
+- item_container 应该选中列表中的每一个文章条目
+- url 应该是容器内的链接选择器
+- title, summary 是容器内相应元素的选择器
+- 使用简洁高效的 CSS 选择器，优先使用 class 和 id
+""",
 }
 
 # Content Analyst Prompt (used in nodes.py summarize)
