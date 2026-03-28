@@ -32,7 +32,8 @@ logger.add(
            "<level>{message}</level>",
     colorize=True,
     diagnose=True,
-    backtrace=True
+    backtrace=True,
+    enqueue=True,
 )
 
 

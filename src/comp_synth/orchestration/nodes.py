@@ -40,7 +40,7 @@ async def fetch_sources(state: PipelineState) -> dict:
             continue
         try:
             crawler = crawler_cls()
-            user_selectors = source.get("selectors", {})
+            user_selectors = source.get("selectors", [])
             items = await crawler.fetch(source, user_selectors=user_selectors)
             all_items.extend(items)
             logger.info(f"从 {source.get('name', source['url'])} 获取到 {len(items)} 条内容")

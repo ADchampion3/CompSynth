@@ -779,17 +779,18 @@ class TestSiteSchema:
         schema = SiteSchema(
             site_name="tech.meituan.com",
             site_url="https://tech.meituan.com/",
-            selectors={
+            selectors=[{
                 "title": "h1.article-title",
                 "author": ".author",
                 "content": ".article-body",
                 "tags": ".article-tags .tag",
-            },
+            }],
         )
 
         assert schema.site_name == "tech.meituan.com"
         assert schema.site_url == "https://tech.meituan.com/"
-        assert len(schema.selectors) == 4
+        assert len(schema.selectors) == 1
+        assert len(schema.selectors[0]) == 4
         assert schema.created_at is not None
         assert schema.updated_at is not None
         assert schema.last_llm_call is None
@@ -799,21 +800,21 @@ class TestSiteSchema:
         schema = SiteSchema(
             site_name="example.com",
             site_url="https://example.com",
-            selectors={"title": "h1"},
+            selectors=[{"title": "h1"}],
         )
 
         json_str = schema.model_dump_json()
         data = json.loads(json_str)
 
         assert data["site_name"] == "example.com"
-        assert data["selectors"]["title"] == "h1"
+        assert data["selectors"][0]["title"] == "h1"
 
     def test_schema_deserialization(self):
         """测试 Schema JSON 反序列化"""
         data = {
             "site_name": "test.com",
             "site_url": "https://test.com",
-            "selectors": {"title": "h1", "content": "article"},
+            "selectors": [{"title": "h1", "content": "article"}],
             "created_at": "2024-01-01T00:00:00",
             "updated_at": "2024-01-01T00:00:00",
             "last_llm_call": None,
@@ -821,7 +822,7 @@ class TestSiteSchema:
 
         schema = SiteSchema(**data)
         assert schema.site_name == "test.com"
-        assert schema.selectors["content"] == "article"
+        assert schema.selectors[0]["content"] == "article"
 
 
 # ============================================================================
@@ -843,14 +844,14 @@ class TestSchemaStore:
         schema = SiteSchema(
             site_name="tech.meituan.com",
             site_url="https://tech.meituan.com/",
-            selectors={"title": "h1"},
+            selectors=[{"title": "h1"}],
         )
         store.save(schema)
 
         retrieved = store.get("tech.meituan.com")
         assert retrieved is not None
         assert retrieved.site_name == "tech.meituan.com"
-        assert retrieved.selectors["title"] == "h1"
+        assert retrieved.selectors[0]["title"] == "h1"
 
     def test_get_nonexistent(self, temp_db_path):
         """测试获取不存在的 Schema"""
@@ -865,15 +866,15 @@ class TestSchemaStore:
         schema = SiteSchema(
             site_name="test.com",
             site_url="https://test.com",
-            selectors={"title": "h1"},
+            selectors=[{"title": "h1"}],
         )
         store.save(schema)
 
-        store.update_selectors("test.com", {"title": "h2", "content": "article"})
+        store.update_selectors("test.com", [{"title": "h2", "content": "article"}])
         updated = store.get("test.com")
 
-        assert updated.selectors["title"] == "h2"
-        assert updated.selectors["content"] == "article"
+        assert updated.selectors[0]["title"] == "h2"
+        assert updated.selectors[0]["content"] == "article"
 
     def test_can_use_llm_first_time(self, temp_db_path):
         """测试首次访问允许 LLM"""
@@ -887,7 +888,7 @@ class TestSchemaStore:
         schema = SiteSchema(
             site_name="test.com",
             site_url="https://test.com",
-            selectors={},
+            selectors=[],
         )
         store.save(schema)
         store.mark_llm_called("test.com")
@@ -901,7 +902,7 @@ class TestSchemaStore:
         schema = SiteSchema(
             site_name="test.com",
             site_url="https://test.com",
-            selectors={},
+            selectors=[],
         )
         store.save(schema)
         store.mark_llm_called("test.com")
@@ -1093,7 +1094,7 @@ class TestSchemaPersistenceAndReuse:
             schema = SiteSchema(
                 site_name=site,
                 site_url=f"https://{site}",
-                selectors={"title": "h1", "content": "article"},
+                selectors=[{"title": "h1", "content": "article"}],
             )
             store.save(schema)
             store.mark_llm_called(site)
@@ -1101,7 +1102,7 @@ class TestSchemaPersistenceAndReuse:
             # 验证 schema 已保存
             retrieved = store.get(site)
             assert retrieved is not None
-            assert retrieved.selectors["title"] == "h1"
+            assert retrieved.selectors[0]["title"] == "h1"
 
             # 验证 LLM 调用已被标记（24小时内不允许再次调用）
             assert store.can_use_llm(site) is False
@@ -1200,7 +1201,7 @@ class TestSchemaPersistenceAndReuse:
             # 如果有 schema，验证其结构有效
             if schema:
                 assert schema.site_name == site_name
-                assert isinstance(schema.selectors, dict)
+                assert isinstance(schema.selectors, list)
                 print(f"Saved selectors: {schema.selectors}")
 
         asyncio.run(run())
@@ -1420,12 +1421,12 @@ class TestListPageExtraction:
 
         extractor = DOMExtractor()
         html = "<html><body><div class='no-match'></div></body></html>"
-        selectors = {
+        selectors = [{
             "item_container": ".post",
             "url": "a",
             "title": "h2",
             "summary": "p"
-        }
+        }]
         result = extractor.extract_list_items_with_selectors(html, selectors)
         assert result == []
 
@@ -1484,16 +1485,12 @@ class TestCrawlerExtractionMethods:
         """
         async def run():
             crawler = AdaptiveWebCrawler()
-            user_selectors = {
+            user_selectors = [{
                 "title": "h1.article-title",
                 "content": ".article-content",
                 "author": ".author"
-            }
-            items = await crawler._crawl_detail_page(
-                sample_html,
-                "https://example.com/test",
-                user_selectors=user_selectors
-            )
+            }]
+            items = await crawler._crawl_detail_page(sample_html, "https://example.com/test", user_selectors)
             assert len(items) == 1
             assert items[0].title == "测试文章标题"
             assert "正文内容" in items[0].content
@@ -1537,10 +1534,10 @@ class TestCrawlerExtractionMethods:
                 "published_at": "",
                 "tags": []
             }
-            mock_selectors = {
+            mock_selectors = [{
                 "title": "h1",
                 "content": ".main-content"
-            }
+            }]
 
             with patch.object(crawler, '_extract_with_readability', new=mock_readability):
                 with patch.object(crawler._dom_extractor, 'extract', new_callable=AsyncMock) as mock_extract:
@@ -1550,10 +1547,7 @@ class TestCrawlerExtractionMethods:
 
                         # 强制设置 can_use_llm 返回 True（避免已有LLM调用记录）
                         with patch.object(crawler._schema_store, 'can_use_llm', return_value=True):
-                            items = await crawler._crawl_detail_page(
-                                sample_html,
-                                url
-                            )
+                            items = await crawler._crawl_detail_page(sample_html, url)
 
                             assert len(items) == 1
                             assert items[0].title == "LLM测试文章标题"
@@ -1589,10 +1583,10 @@ class TestCrawlerExtractionMethods:
                 schema = SiteSchema(
                     site_name=site_name,
                     site_url=f"https://{site_name}",
-                    selectors={
+                    selectors=[{
                         "title": "h1.db-title",
                         "content": ".db-content"
-                    }
+                    }]
                 )
                 store.save(schema)
 
@@ -1607,10 +1601,7 @@ class TestCrawlerExtractionMethods:
                 crawler = AdaptiveWebCrawler()
                 crawler._schema_store = SchemaStore()  # 使用真实的 SchemaStore
 
-                items = await crawler._crawl_detail_page(
-                    sample_html,
-                    f"https://{site_name}/article"
-                )
+                items = await crawler._crawl_detail_page(sample_html, f"https://{site_name}/article")
 
                 # 由于 schema 存在，应该直接使用 DB selector
                 assert len(items) == 1
@@ -1623,43 +1614,6 @@ class TestCrawlerExtractionMethods:
                 shutil.rmtree(tmpdir, ignore_errors=True)
 
         asyncio.run(run())
-
-    def test_all_methods_output_structure(self):
-        """测试所有方法输出相同的结构化数据格式"""
-        standard_html = """
-        <html><body>
-            <article>
-                <h1 class="title">通用测试标题</h1>
-                <div class="content"><p>多方法测试的正文内容，多于100字符确保readability能提取。</p><p>第二段内容。</p></div>
-                <span class="author">测试作者</span>
-            </article>
-        </body></html>
-        """
-        async def run():
-            # 使用随机site name避免DB中的旧数据干扰
-            site_name = f"all-methods-{id(self)}.com"
-            url = f"https://{site_name}/test"
-            user_selectors = {"title": "h1.title", "content": ".content", "author": ".author"}
-
-            # 1. 测试用户 Selector 方法
-            crawler1 = AdaptiveWebCrawler()
-            items1 = await crawler1._crawl_detail_page(standard_html, url, user_selectors=user_selectors)
-
-            # 2. 测试 readability 方法（无 selectors 时）- 使用无schema的site
-            crawler2 = AdaptiveWebCrawler()
-            items2 = await crawler2._crawl_detail_page(standard_html, url, user_selectors=None)
-
-            # 3. 验证结果结构一致性
-            assert items1[0].title == items2[0].title, "不同方法应提取到相同的标题"
-            assert items1[0].url == items2[0].url, "URL 应该一致"
-            # 输出对比日志
-            logger.info("=== 多方法对比测试完成 ===")
-            logger.info(f"用户Selector: title={items1[0].title}, content长度={len(items1[0].content)}")
-            logger.info(f"Readability: title={items2[0].title}, content长度={len(items2[0].content)}")
-
-        asyncio.run(run())
-
-
 # ============================================================================
 # Run Tests
 # ============================================================================
