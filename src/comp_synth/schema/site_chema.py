@@ -8,14 +8,22 @@ class SiteSchema(BaseModel):
 
     site_name: str = ""
     site_url: str = ""
-    selectors: dict[str, str] = Field(default_factory=dict)
-    # 列表页 CSS 选择器映射，例如:
-    # {
-    #     "item_container": "article.post-item",
-    #     "url": "a[href]",
-    #     "title": "h2.title",
-    #     "summary": "p.summary"
-    # }
+    selectors: list[dict[str, str]] = Field(default_factory=list)
+    # 列表页 CSS 选择器映射，支持多组选择器（针对同一页面的多个内容容器），例如:
+    # [
+    #     {
+    #         "item_container": "article.post-item",
+    #         "url": "a[href]",
+    #         "title": "h2.title",
+    #         "summary": "p.summary"
+    #     },
+    #     {
+    #         "item_container": "div.article-section",
+    #         "url": "a",
+    #         "title": "h3",
+    #         "summary": ".summary"
+    #     }
+    # ]
     created_at: datetime = Field(default_factory=lambda: datetime.now())
     updated_at: datetime = Field(default_factory=lambda: datetime.now())
     last_llm_call: datetime | None = None

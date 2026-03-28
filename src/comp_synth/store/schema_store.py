@@ -42,10 +42,14 @@ class SchemaStore:
             ).fetchone()
             if row is None:
                 return None
+            selectors = json.loads(row[2])
+            # 向后兼容：旧的 dict 格式迁移为 list[dict] 格式
+            if isinstance(selectors, dict):
+                selectors = [selectors]
             return SiteSchema(
                 site_name=row[0],
                 site_url=row[1],
-                selectors=json.loads(row[2]),
+                selectors=selectors,
                 created_at=datetime.fromisoformat(row[3]),
                 updated_at=datetime.fromisoformat(row[4]),
                 last_llm_call=datetime.fromisoformat(row[5]) if row[5] else None,
@@ -102,7 +106,7 @@ class SchemaStore:
             last_call = datetime.fromisoformat(row[0])
             return (datetime.now() - last_call) > timedelta(hours=24)
 
-    def update_selectors(self, site_name: str, selectors: dict[str, str]) -> None:
+    def update_selectors(self, site_name: str, selectors: list[dict[str, str]]) -> None:
         """更新指定站点的 selectors"""
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(

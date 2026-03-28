@@ -13,3 +13,18 @@ sources:
       url: ".post-title a"
       title: ".post-title"
       summary: ".post-excerpt"
+      content: ".post-content"
+  # 多 selector 示例：一个网站下有多个文章容器需要分别提取
+  # 每个 selectors 列表项对应一组 CSS 选择器
+  - type: web
+    url: https://example.com/
+    name: Example Multi-Selector
+    selectors:
+      - item_container: "div.article-section-1"
+        url: "a.title"
+        title: "h2"
+        summary: "p"
+      - item_container: "div.article-section-2"
+        url: "a"
+        title: "h3"
+        summary: ".summary"
