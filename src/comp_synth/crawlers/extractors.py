@@ -83,33 +83,32 @@ class DOMExtractor:
 
         try:
             structured_llm = self._llm.with_structured_output(ContainerFragments)
-            logger.info("正在使用 Stage 1: 识别文章容器片段...")
+            logger.info("[identify_container_fragments] Stage 1: 识别文章容器片段")
             result: ContainerFragments = await structured_llm.ainvoke([
                 SystemMessage(content=DOM_PROMPTS["CONTAINER_DISCOVERY"]),
                 HumanMessage(content=f"请分析以下列表页 HTML，识别文章容器并返回每个容器类型的 HTML 片段：\n\n{html_preview}"),
             ])
             return result.data
         except Exception as e:
-            logger.warning(f"Stage 1 容器识别失败: {e}")
+            logger.warning("[identify_container_fragments] Stage 1 容器识别失败 | error={error}", error=e)
             return []
 
     async def generate_selectors_from_fragment(self, fragment: ContainerFragment) -> list[dict[str, str]]:
         """Stage 2: 从容器 HTML 片段生成 item_selectors"""
         try:
             structured_llm = self._llm.with_structured_output(ListItemSelectors)
-            logger.info(f"正在使用 Stage 2: 从容器片段生成 selectors (selector: {fragment.container_selector})...")
+            logger.info("[generate_selectors_from_fragment] Stage 2: 从容器片段生成 selectors | container={container}", container=fragment.container_selector)
             result: ListItemSelectors = await structured_llm.ainvoke([
                 SystemMessage(content=DOM_PROMPTS["LIST_ITEM_SELECTOR_FROM_FRAGMENT"]),
                 HumanMessage(content=f"请分析以下文章容器 HTML 片段，生成 CSS selectors：\n\n{fragment.fragment_html}"),
             ])
             selectors = [item.model_dump() for item in result.data]
-            # 补上 item_container selector
             for s in selectors:
                 if not s.get("item_container"):
                     s["item_container"] = fragment.container_selector
             return selectors
         except Exception as e:
-            logger.warning(f"Stage 2 selectors 生成失败: {e}")
+            logger.warning("[generate_selectors_from_fragment] Stage 2 selectors 生成失败 | error={error}", error=e)
             return []
 
     async def generate_list_item_selectors(self, html: str) -> List[dict[str, str]]:
@@ -125,7 +124,7 @@ class DOMExtractor:
         # Stage 1: 识别容器片段
         fragments = await self.identify_container_fragments(html)
         if not fragments:
-            logger.warning("Stage 1 未识别到任何容器片段，尝试原始方案")
+            logger.warning("[generate_list_item_selectors] Stage 1 未识别到任何容器片段，尝试原始方案")
             return await self._generate_selectors_legacy(html)
 
         results = await asyncio.gather(*[
@@ -137,14 +136,14 @@ class DOMExtractor:
         for result in results:
             if isinstance(result, Exception):
                 failed_count += 1
-                logger.warning(f"Stage 2 片段处理失败: {result}")
+                logger.warning("[generate_list_item_selectors] Stage 2 片段处理失败 | error={error}", error=result)
             else:
                 all_selectors.extend(result)
         if failed_count:
-            logger.warning(f"Stage 2: {failed_count}/{len(fragments)} 片段处理失败")
+            logger.warning("[generate_list_item_selectors] Stage 2 | failed_count={failed}/{total}", failed=failed_count, total=len(fragments))
 
         if not all_selectors:
-            logger.warning("Stage 2 未生成有效 selectors，尝试原始方案")
+            logger.warning("[generate_list_item_selectors] Stage 2 未生成有效 selectors，尝试原始方案")
             return await self._generate_selectors_legacy(html)
 
         return all_selectors
@@ -155,14 +154,14 @@ class DOMExtractor:
 
         try:
             structured_llm = self._llm.with_structured_output(ListItemSelectors)
-            logger.info("正在使用原始方案生成列表页 CSS selectors...")
+            logger.info("[_generate_selectors_legacy] 使用原始方案生成 CSS selectors")
             result: ListItemSelectors = await structured_llm.ainvoke([
                 SystemMessage(content=DOM_PROMPTS["LIST_ITEM_SELECTOR"]),
                 HumanMessage(content=f"请分析以下列表页 HTML 结构并生成 selectors：\n\n{html_preview}"),
             ])
             return [item.model_dump() for item in result.data]
         except Exception as e:
-            logger.warning(f"原始方案 with_structured_output 失败: {e}")
+            logger.warning("[_generate_selectors_legacy] 原始方案 with_structured_output 失败 | error={error}", error=e)
             return []
 
 
@@ -178,22 +177,21 @@ class DOMExtractor:
         Returns:
             提取到的文章条目列表
         """
-        logger.info(f"[DOMExtractor.extract_list_items_with_selectors] HTML大小: {len(html)} bytes | selectors列表长度: {len(list_selectors)}")
+        logger.info("[extract_list_items_with_selectors] html_size={size} | selectors_count={count}", size=len(html), count=len(list_selectors))
         soup = BeautifulSoup(html, "html.parser")
         all_items = []
         seen_urls: set[str] = set()
 
         for selector_idx, selectors in enumerate(list_selectors):
-            logger.info(f"[DOMExtractor.extract_list_items_with_selectors] 正在使用第 {selector_idx + 1} 组选择器: {selectors}")
+            logger.info("[extract_list_items_with_selectors] 使用第 {index} 组选择器 | selectors={selectors}", index=selector_idx + 1, selectors=selectors)
 
             item_container = selectors.get("item_container", "") or "article"
             url_selector = selectors.get("url", "") or "a[href]"
             title_selector = selectors.get("title", "") or "h2, h3"
             summary_selector = selectors.get("summary", "") or "p"
 
-            # 查找所有文章条目容器
             containers = soup.select(item_container)
-            logger.info(f"[DOMExtractor] 第 {selector_idx + 1} 组选择器找到 {len(containers)} 个容器")
+            logger.info("[extract_list_items_with_selectors] 第 {index} 组选择器找到 {count} 个容器", index=selector_idx + 1, count=len(containers))
 
             for container in containers:
                 # 提取 URL：优先从 href 属性获取，其次从文本中用正则提取
@@ -239,5 +237,5 @@ class DOMExtractor:
                             "summary": summary,
                         })
 
-        logger.info(f"[DOMExtractor.extract_list_items_with_selectors] 提取完成 | 提取到 {len(all_items)} 个条目（去重后）")
+        logger.info("[extract_list_items_with_selectors] 提取完成 | extracted_count={count}（去重后）", count=len(all_items))
         return all_items
