@@ -411,3 +411,21 @@ class AdaptiveWebCrawler(BaseCrawler):
                 for item in result
             ])
         return result
+
+
+class DynamicWebCrawler(AdaptiveWebCrawler):
+    """
+    动态网站爬虫，使用无头浏览器渲染 JavaScript。
+
+    适用于 React/Vue 等前端框架构建的网站，
+    内容通过 JS 动态渲染的页面。
+    """
+
+    async def _fetch_html(self, url: str) -> str:
+        """
+        使用浏览器获取渲染后的 HTML
+
+        直接委托给 BaseCrawler 的 _fetch_html_with_browser 方法，
+        无需重试（浏览器层面已有自己的错误处理）
+        """
+        return await self._fetch_html_with_browser(url)

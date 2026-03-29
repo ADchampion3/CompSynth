@@ -12,6 +12,7 @@ from comp_synth.crawlers.rss import RSSCrawler
 from comp_synth.llm_provider.registry import llm_registry
 from comp_synth.orchestration.state import PipelineState
 from comp_synth.prompt import CONTENT_ANALYST_PROMPT, REPORT_GENERATOR_PROMPT
+from comp_synth.report_format_checker import ReportFormatChecker
 from comp_synth.schema.content_item import WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.vector_store import VectorStore
@@ -226,6 +227,15 @@ async def publish(state: PipelineState) -> dict:
 
     report = response.content
 
+    # 格式检查（警告但不阻断）
+    checker = ReportFormatChecker(report)
+    result = checker.check_all()
+    if not result["passed"]:
+        for err in result["errors"]:
+            logger.warning(f"报告格式检查未通过: {err}")
+    for warn in result["warnings"]:
+        logger.warning(warn)
+
     output_dir = Path(settings.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d")
@@ -235,5 +245,9 @@ async def publish(state: PipelineState) -> dict:
     logger.info(f"报告已写入: {output_path}")
     return {
         "report": report,
-        "publish_results": {"status": "success", "path": str(output_path)},
+        "publish_results": {
+            "status": "success",
+            "path": str(output_path),
+            "format_check": result,
+        },
     }
