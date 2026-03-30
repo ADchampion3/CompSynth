@@ -9,6 +9,7 @@ from comp_synth.crawlers.base import BaseCrawler
 from comp_synth.crawlers.extractors import DOMExtractor
 from comp_synth.schema.content_item import WebPageItem
 from comp_synth.schema.site_chema import SiteSchema
+from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.schema_store import SchemaStore
 
 
@@ -25,6 +26,7 @@ class AdaptiveWebCrawler(BaseCrawler):
     """
 
     def __init__(self):
+        self._tracker = CrawlTracker()
         self._schema_store = SchemaStore()
         self._dom_extractor = DOMExtractor()
 

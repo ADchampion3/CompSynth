@@ -118,17 +118,9 @@ class ContentManager:
 
         # Persist all processed items
         if processed:
-            self._tracker.save_articles([
-                {
-                    "article_id": item.id,
-                    "title": item.title,
-                    "summary": item.summary,
-                    "content": item.content,
-                    "published_at": item.published_at.isoformat() if item.published_at else None,
-                    "metadata": {"feed_url": feed_url},
-                }
-                for item in processed
-            ])
+            for item in processed:
+                item.metadata["feed_url"] = feed_url
+            self._tracker.save_articles(processed)
 
         return processed
 
@@ -162,16 +154,7 @@ class ContentManager:
 
         # Persist all processed items
         if processed:
-            self._tracker.save_articles([
-                {
-                    "article_id": item.id,
-                    "title": item.title,
-                    "summary": item.summary,
-                    "content": item.content,
-                    "published_at": item.published_at.isoformat() if item.published_at else None,
-                }
-                for item in processed
-            ])
+            self._tracker.save_articles(processed)
 
         return processed
 
