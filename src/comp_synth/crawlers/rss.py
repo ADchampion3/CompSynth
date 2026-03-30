@@ -1,5 +1,5 @@
 from datetime import datetime
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import feedparser
 from bs4 import BeautifulSoup
@@ -8,7 +8,6 @@ from readability import Document
 
 from comp_synth.crawlers.base import BaseCrawler
 from comp_synth.schema.content_item import RSSItem, WebPageItem
-from comp_synth.store.crawl_tracker import CrawlTracker
 
 
 class RSSCrawler(BaseCrawler):
@@ -62,11 +61,10 @@ class RSSCrawler(BaseCrawler):
             logger.warning(f"详情页爬取失败 {item.url}: {e}")
             return item
 
-    async def fetch(self, source_config: dict, user_selectors: list[dict[str, str]] | None = None) -> list[RSSItem]:
+    async def fetch_feed(self, source_config: dict) -> list[RSSItem]:
+        """抓取 RSS 源，返回原始条目列表（不含去重和持久化，由 ContentManager 处理）"""
         feed_url = source_config["url"]
         feed = feedparser.parse(feed_url)
-
-        tracker = CrawlTracker()
 
         items = []
         for entry in feed.entries:
@@ -80,32 +78,16 @@ class RSSCrawler(BaseCrawler):
             url = entry.get("link")
             url = urljoin(source_config["url"], url)
 
-            # URL 去重检查
-            if tracker.is_crawled("rss", url):
-                logger.info(f"RSS: {url} 已爬取, 跳过")
-                continue
-
             item = RSSItem(
                 url=url,
                 title=entry.get("title", ""),
                 summary=entry.get("summary", ""),
                 published_at=published_at,
             )
-            site_name = urlparse(url).netloc or "unknown"
-            item = await self.maybe_fetch_detail(item, site_name)
             items.append(item)
 
-        # 批量保存（避免同一批次内重复已在上面通过 is_crawled 检查保证）
-        if items:
-            tracker.save_articles([
-                {
-                    "article_id": item.id,
-                    "title": item.title,
-                    "summary": item.summary,
-                    "published_at": item.published_at.isoformat() if item.published_at else None,
-                    "metadata": {"feed_url": feed_url},
-                }
-                for item in items
-            ])
-
         return items
+
+    async def fetch(self, source_config: dict, user_selectors: list[dict[str, str]] | None = None) -> list[RSSItem]:
+        """兼容接口，内部委托给 fetch_feed + maybe_fetch_detail"""
+        return await self.fetch_feed(source_config)

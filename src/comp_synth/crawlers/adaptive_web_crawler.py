@@ -9,7 +9,6 @@ from comp_synth.crawlers.base import BaseCrawler
 from comp_synth.crawlers.extractors import DOMExtractor
 from comp_synth.schema.content_item import WebPageItem
 from comp_synth.schema.site_chema import SiteSchema
-from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.schema_store import SchemaStore
 
 
@@ -28,7 +27,6 @@ class AdaptiveWebCrawler(BaseCrawler):
     def __init__(self):
         self._schema_store = SchemaStore()
         self._dom_extractor = DOMExtractor()
-        self._tracker = CrawlTracker()
 
     def _detect_site(self, url: str) -> str:
         """根据 URL 检测站点名称（使用域名）"""
@@ -310,22 +308,16 @@ class AdaptiveWebCrawler(BaseCrawler):
             title_preview = item_dict.get('title', '')[:30]
             logger.info("[crawl_list_page] item {index}/{total} | title={title}... | url={url}", index=i+1, total=len(items), title=title_preview, url=item_dict['url'])
 
-            if self._tracker.is_crawled("web", item_dict["url"]):
-                logger.info("[crawl_list_page] 已爬取，跳过 | url={url}", url=item_dict['url'])
-                continue
-
             item_summary = item_dict.get("summary", "")
 
+            # 构建列表页条目（不含去重和详情抓取，由 ContentManager 处理）
             list_item = self._build_item(
                 url=item_dict["url"],
                 title=item_dict.get("title", ""),
                 summary=item_summary,
                 site_name=site_name,
             )
-            enriched = await self.maybe_fetch_detail(list_item, site_name)
-            if enriched:
-                logger.info("[crawl_list_page] item {index} | title={title}... | summary_length={length}", index=i+1, title=enriched.title[:30], length=len(enriched.summary))
-                results.append(enriched)
+            results.append(list_item)
 
         logger.info("[crawl_list_page] 爬取结束 | total_items={count}", count=len(results))
         return results
@@ -372,60 +364,29 @@ class AdaptiveWebCrawler(BaseCrawler):
             metadata={"site_name": site_name},
         )
 
-    async def fetch(self, source_config: dict, user_selectors: list[dict[str, str]] | None = None) -> list[WebPageItem]:
+    async def fetch_page(self, url: str, user_selectors: list[dict[str, str]] | None = None) -> list[WebPageItem]:
         """
-        自适应爬取流程：
+        从单个页面抓取内容（不含去重和持久化，由 ContentManager 处理）。
+
+        流程：
         1. 获取 HTML
         2. 检测页面类型：列表页 vs 详情页
-        3. 列表页：提取所有文章条目并 follow 获取详情
-        4. 详情页：使用现有逻辑（readability → schema → 二次爬取 → LLM）
+        3. 列表页：提取所有文章条目
+        4. 详情页：使用 readability 提取
         """
-        url = source_config["url"]
-
         try:
             html = await self._fetch_html(url)
         except Exception as e:
             logger.error(f"获取网页失败 {url}: {e}")
             return []
 
-        result = []
         # 检测页面类型
         if self._is_list_page(html):
             logger.info(f"检测到列表页: {url}")
-            result = await self._crawl_list_page(html, url, user_selectors)
+            return await self._crawl_list_page(html, url, user_selectors)
         else:
-            # 直接爬取详情页前检查是否已爬过
-            if self._tracker.is_crawled("web", url):
-                logger.info(f"详情页已爬取，跳过: {url}")
-                return result
-            result = await self._crawl_detail_page(html, url)
+            return await self._crawl_detail_page(html, url)
 
-        if result:
-            self._tracker.save_articles([
-                {
-                    "article_id": item.id,
-                    "title": item.title,
-                    "summary": item.summary,
-                    "published_at": item.published_at.isoformat() if item.published_at else None,
-                }
-                for item in result
-            ])
-        return result
-
-
-class DynamicWebCrawler(AdaptiveWebCrawler):
-    """
-    动态网站爬虫，使用无头浏览器渲染 JavaScript。
-
-    适用于 React/Vue 等前端框架构建的网站，
-    内容通过 JS 动态渲染的页面。
-    """
-
-    async def _fetch_html(self, url: str) -> str:
-        """
-        使用浏览器获取渲染后的 HTML
-
-        直接委托给 BaseCrawler 的 _fetch_html_with_browser 方法，
-        无需重试（浏览器层面已有自己的错误处理）
-        """
-        return await self._fetch_html_with_browser(url)
+    async def fetch(self, source_config: dict, user_selectors: list[dict[str, str]] | None = None) -> list[WebPageItem]:
+        """兼容接口，内部委托给 fetch_page"""
+        return await self.fetch_page(source_config["url"], user_selectors)

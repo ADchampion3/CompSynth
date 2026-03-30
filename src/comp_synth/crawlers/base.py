@@ -54,12 +54,13 @@ class BaseCrawler(ABC):
             page.quit()
 
     @abstractmethod
-    async def fetch(self, source_config: dict) -> list[ContentItem]:
+    async def fetch(self, source_config: dict, user_selectors: list[dict[str, str]] | None = None) -> list[ContentItem]:
         """
         从指定源采集内容
 
         Args:
             source_config: 源配置，包含url、时间范围等参数
+            user_selectors: 用户自定义的选择器列表
 
         Returns:
             采集到的内容项列表

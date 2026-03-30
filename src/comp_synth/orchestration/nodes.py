@@ -7,10 +7,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
 
 from comp_synth.config import settings
-from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
-from comp_synth.crawlers.dynamic_web_crawler import DynamicWebCrawler
-from comp_synth.crawlers.rss import RSSCrawler
 from comp_synth.llm_provider.registry import llm_registry
+from comp_synth.orchestration.content_manager import ContentManager
 from comp_synth.orchestration.state import PipelineState
 from comp_synth.prompt import CONTENT_ANALYST_PROMPT, REPORT_GENERATOR_PROMPT
 from comp_synth.report_format_checker import ReportFormatChecker
@@ -18,41 +16,29 @@ from comp_synth.schema.content_item import WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.vector_store import VectorStore
 
-CRAWLER_MAP = {
-    "rss": RSSCrawler,
-    "web": AdaptiveWebCrawler,
-    "dynamic": DynamicWebCrawler,
-}
-
 
 async def fetch_sources(state: PipelineState) -> dict:
-    """从所有订阅源采集内容"""
+    """从所有订阅源采集内容（委托给 ContentManager）"""
     subs_path = settings.subscriptions_path
     with open(subs_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     sources = config.get("sources", [])
-    all_items = []
-    errors = list(state.get("errors", []))
 
-    for source in sources:
-        source_type = source["type"]
-        crawler_cls = CRAWLER_MAP.get(source_type)
-        if not crawler_cls:
-            errors.append(f"未知的订阅源类型: {source_type}")
-            continue
-        try:
-            crawler = crawler_cls()
-            user_selectors = source.get("selectors", [])
-            items = await crawler.fetch(source, user_selectors=user_selectors)
-            all_items.extend(items)
-            logger.info(f"从 {source.get('name', source['url'])} 获取到 {len(items)} 条内容")
-        except Exception as e:
-            msg = f"爬取 {source.get('url')} 失败: {e}"
-            logger.exception(e)
-            errors.append(msg)
+    # Thin wrapper - delegates all orchestration to ContentManager
+    manager = ContentManager()
+    result = await manager.fetch_all(sources)
 
-    return {"sources": sources, "raw_items": all_items, "errors": errors}
+    logger.info(
+        f"内容采集完成: {len(result.items)} 条内容, "
+        f"{len(result.errors)} 个错误"
+    )
+
+    return {
+        "sources": sources,
+        "raw_items": result.items,
+        "errors": result.errors,
+    }
 
 
 async def deduplicate(state: PipelineState) -> dict:
