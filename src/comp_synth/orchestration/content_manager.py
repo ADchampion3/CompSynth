@@ -8,6 +8,7 @@ from loguru import logger
 
 from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
 from comp_synth.crawlers.base import BaseCrawler
+from comp_synth.crawlers.dynamic_web_crawler import DynamicWebCrawler
 from comp_synth.crawlers.rss import RSSCrawler
 from comp_synth.schema.content_item import ContentItem, RSSItem, WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
@@ -62,6 +63,7 @@ class ContentManager:
     CRAWLER_MAP: dict[str, type[BaseCrawler]] = {
         "rss": RSSCrawler,
         "web": AdaptiveWebCrawler,
+        "javascript": DynamicWebCrawler,
     }
 
     def __init__(self, crawl_tracker: CrawlTracker | None = None):
@@ -199,7 +201,7 @@ class ContentManager:
             try:
                 if source_type == "rss":
                     items = await self._fetch_rss_source(source, crawler)
-                elif source_type == "web":
+                elif source_type in ("web", "javascript"):
                     items = await self._fetch_web_source(source, crawler)
                 else:
                     items = await crawler.fetch(source, user_selectors=source.get("selectors"))
