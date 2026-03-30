@@ -1,5 +1,6 @@
 """ContentManager - orchestrates content fetching, deduplication, and persistence."""
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Protocol
 from urllib.parse import urlparse
@@ -122,6 +123,7 @@ class ContentManager:
                     "article_id": item.id,
                     "title": item.title,
                     "summary": item.summary,
+                    "content": item.content,
                     "published_at": item.published_at.isoformat() if item.published_at else None,
                     "metadata": {"feed_url": feed_url},
                 }
@@ -165,6 +167,7 @@ class ContentManager:
                     "article_id": item.id,
                     "title": item.title,
                     "summary": item.summary,
+                    "content": item.content,
                     "published_at": item.published_at.isoformat() if item.published_at else None,
                 }
                 for item in processed
@@ -172,12 +175,44 @@ class ContentManager:
 
         return processed
 
+    async def _fetch_single_source(
+        self,
+        source: dict,
+    ) -> tuple[str, list[ContentItem] | None, str | None]:
+        """
+        Fetch from a single source. Returns (source_name, items or None, error or None).
+        """
+        source_type = source["type"]
+        source_name = source.get("name", source.get("url", "unknown"))
+
+        crawler = self._get_crawler(source_type)
+        if not crawler:
+            return (source_name, None, f"未知的订阅源类型: {source_type}")
+
+        try:
+            if source_type == "rss":
+                items = await self._fetch_rss_source(source, crawler)
+            elif source_type in ("web", "javascript"):
+                items = await self._fetch_web_source(source, crawler)
+            else:
+                items = await crawler.fetch(source, user_selectors=source.get("selectors"))
+
+            logger.info(
+                f"[ContentManager] 从 {source_name} 获取到 {len(items)} 条内容"
+            )
+            return (source_name, items, None)
+
+        except Exception as e:
+            error_msg = f"爬取失败: {e}"
+            logger.exception(f"ContentManager: {error_msg}")
+            return (source_name, None, error_msg)
+
     async def fetch_all(
         self,
         sources: list[dict],
     ) -> FetchResult:
         """
-        Fetch content from all sources.
+        Fetch content from all sources concurrently.
 
         Args:
             sources: List of source configs from subscriptions.yaml
@@ -185,39 +220,22 @@ class ContentManager:
         Returns:
             FetchResult with items, errors, and source counts
         """
+        if not sources:
+            return FetchResult()
+
+        # Run all sources concurrently
+        tasks = [self._fetch_single_source(source) for source in sources]
+        results = await asyncio.gather(*tasks)
+
+        # Aggregate results
         result = FetchResult()
-
-        for source in sources:
-            source_type = source["type"]
-            source_name = source.get("name", source.get("url", "unknown"))
-
-            crawler = self._get_crawler(source_type)
-            if not crawler:
-                error_msg = f"未知的订阅源类型: {source_type}"
-                result.errors.append(f"[{source_name}] {error_msg}")
+        for source_name, items, error in results:
+            if error:
+                result.errors.append(f"[{source_name}] {error}")
                 result.source_counts[source_name] = 0
-                continue
-
-            try:
-                if source_type == "rss":
-                    items = await self._fetch_rss_source(source, crawler)
-                elif source_type in ("web", "javascript"):
-                    items = await self._fetch_web_source(source, crawler)
-                else:
-                    items = await crawler.fetch(source, user_selectors=source.get("selectors"))
-
+            else:
                 result.items.extend(items)
                 result.source_counts[source_name] = len(items)
-
-                logger.info(
-                    f"[ContentManager] 从 {source_name} 获取到 {len(items)} 条内容"
-                )
-
-            except Exception as e:
-                error_msg = f"爬取失败: {e}"
-                result.errors.append(f"[{source_name}] {error_msg}")
-                result.source_counts[source_name] = 0
-                logger.exception(f"ContentManager: {error_msg}")
 
         return result
 

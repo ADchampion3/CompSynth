@@ -276,6 +276,7 @@ class AdaptiveWebCrawler(BaseCrawler):
                     url=url,
                     title=result.get("title", ""),
                     summary=result.get("summary") if summary_valid else result.get("content"),
+                    content=result.get("content", ""),
                     site_name=self._detect_site(url),
                 )
                 return item
@@ -343,6 +344,7 @@ class AdaptiveWebCrawler(BaseCrawler):
             url=url,
             title=title,
             summary=content or summary,
+            content=content,
             site_name=site_name,
         )
         logger.info("[crawl_detail_page] item | title={title}... | summary_length={length}", title=item.title[:30], length=len(item.summary))
@@ -354,6 +356,7 @@ class AdaptiveWebCrawler(BaseCrawler):
         url: str,
         title: str = "",
         summary: str = "",
+        content: str = "",
         site_name: str = "",
     ) -> WebPageItem:
         """构建 WebPageItem，最低保障 url + title"""
@@ -361,6 +364,7 @@ class AdaptiveWebCrawler(BaseCrawler):
             url=url,
             title=title or url,  # title 最低保障为 url
             summary=summary,
+            content=content,
             metadata={"site_name": site_name},
         )
 
