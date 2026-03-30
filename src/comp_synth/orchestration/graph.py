@@ -9,6 +9,7 @@ from comp_synth.orchestration.nodes import (
     fetch_sources,
     publish,
     summarize,
+    use_last_digest,
 )
 from comp_synth.orchestration.state import PipelineState
 
@@ -28,24 +29,25 @@ def build_pipeline() -> StateGraph:
     graph.add_node("deduplicate", deduplicate)
     graph.add_node("summarize", summarize)
     graph.add_node("enrich", enrich)
+    graph.add_node("use_last_digest", use_last_digest)
     graph.add_node("publish", publish)
 
     graph.set_entry_point("fetch_sources")
     graph.add_edge("fetch_sources", "deduplicate")
 
     def should_continue(state: PipelineState) -> str:
-        new_items = state.get("raw_items", [])
-        if new_items:
+        raw_items = state.get("raw_items", [])
+        if raw_items:
             return "summarize"
         # 没有新内容但有上一次的 digest → 跳到 publish 复用
         if _has_last_digest():
-            return "publish"
+            return "use_last_digest"
         return "end"
 
     graph.add_conditional_edges("deduplicate", should_continue, {
         "end": END,
         "summarize": "summarize",
-        "publish": "publish",
+        "use_last_digest": "use_last_digest",
     })
     graph.add_edge("summarize", "enrich")
     graph.add_edge("enrich", "publish")

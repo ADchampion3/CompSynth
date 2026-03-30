@@ -50,7 +50,7 @@ class RSSCrawler(BaseCrawler):
             )
             if not self._is_summary_enough(summary_text) and content_text:
                 summary_text = content_text
-            return WebPageItem(
+            return RSSItem(
                 url=item.url,
                 title=doc.short_title() or item.title,
                 summary=summary_text,

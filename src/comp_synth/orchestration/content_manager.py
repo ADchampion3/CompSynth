@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Protocol
 from urllib.parse import urlparse
 
@@ -13,6 +14,105 @@ from comp_synth.crawlers.dynamic_web_crawler import DynamicWebCrawler
 from comp_synth.crawlers.rss import RSSCrawler
 from comp_synth.schema.content_item import ContentItem, RSSItem, WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
+from comp_synth.store.vector_store import VectorStore
+
+# ============================================================================
+# Source Strategy Pattern - 消除硬编码的来源类型
+# ============================================================================
+
+
+class SourceStrategy(Protocol):
+    """策略接口: 定义如何获取历史内容和构建 ContentItem."""
+
+    @property
+    def source_type(self) -> str:
+        """来源类型标识 (e.g., 'rss', 'web')."""
+        ...
+
+    def get_today_items(self, tracker: CrawlTracker) -> list[dict]:
+        """从 tracker 获取今日该来源的历史内容."""
+        ...
+
+    def create_historical_item(self, metadata: dict) -> ContentItem:
+        """根据 SQLite 元数据构建 ContentItem 子类."""
+        ...
+
+
+class RSSSourceStrategy:
+    """RSS 来源策略."""
+
+    source_type = "rss"
+
+    def get_today_items(self, tracker: CrawlTracker) -> list[dict]:
+        return tracker.get_today_items(self.source_type)
+
+    def create_historical_item(self, metadata: dict) -> ContentItem:
+        return RSSItem(
+            source=metadata.get("source", "rss"),
+            url=metadata.get("url", ""),
+            title=metadata.get("title", ""),
+            summary=metadata.get("summary", ""),
+            collected_at=datetime.fromisoformat(metadata.get("crawled_at", datetime.now().isoformat())),
+            published_at=datetime.fromisoformat(metadata["published_at"])
+            if metadata.get("published_at") else None,
+        )
+
+
+class WebSourceStrategy:
+    """Web 来源策略."""
+
+    source_type = "web"
+
+    def get_today_items(self, tracker: CrawlTracker) -> list[dict]:
+        return tracker.get_today_items(self.source_type)
+
+    def create_historical_item(self, metadata: dict) -> ContentItem:
+        return WebPageItem(
+            source=metadata.get("source", "web"),
+            url=metadata.get("url", ""),
+            title=metadata.get("title", ""),
+            summary=metadata.get("summary", ""),
+            collected_at=datetime.fromisoformat(metadata.get("crawled_at", datetime.now().isoformat())),
+        )
+
+
+class JavaScriptSourceStrategy(WebSourceStrategy):
+    """JavaScript 来源策略 (复用 WebSourceStrategy)."""
+
+    source_type = "javascript"
+
+
+class SourceStrategyFactory:
+    """工厂: 管理 SourceStrategy 注册与获取."""
+
+    def __init__(self):
+        self._strategies: dict[str, SourceStrategy] = {}
+
+    def register(self, strategy: SourceStrategy) -> None:
+        """注册来源策略."""
+        self._strategies[strategy.source_type] = strategy
+
+    def get_strategy(self, source_type: str) -> SourceStrategy | None:
+        """获取指定来源的策略."""
+        return self._strategies.get(source_type)
+
+    def get_all_source_types(self) -> list[str]:
+        """获取所有已注册来源类型 (非硬编码)."""
+        return list(self._strategies.keys())
+
+    @staticmethod
+    def create_default_factory() -> "SourceStrategyFactory":
+        """创建内置默认策略的工厂."""
+        factory = SourceStrategyFactory()
+        factory.register(RSSSourceStrategy())
+        factory.register(WebSourceStrategy())
+        factory.register(JavaScriptSourceStrategy())
+        return factory
+
+
+# ============================================================================
+# Protocol Definitions for Crawlers
+# ============================================================================
 
 
 class RSSCrawlerProtocol(Protocol):
@@ -67,16 +167,28 @@ class ContentManager:
         "javascript": DynamicWebCrawler,
     }
 
-    def __init__(self, crawl_tracker: CrawlTracker | None = None):
+    def __init__(
+        self,
+        crawl_tracker: CrawlTracker | None = None,
+        strategy_factory: SourceStrategyFactory | None = None,
+        vector_store: VectorStore | None = None,
+    ):
         """
         Initialize ContentManager.
 
         Args:
             crawl_tracker: Optional CrawlTracker instance. If not provided,
                           a new one will be created. Exposed for testing.
+            strategy_factory: Optional strategy factory. If not provided,
+                            a default factory with RSS, Web, JavaScript strategies
+                            will be created.
+            vector_store: Optional VectorStore instance. If not provided,
+                         a new one will be created.
         """
         self._tracker = crawl_tracker or CrawlTracker()
+        self._vector_store = vector_store or VectorStore()
         self._crawlers: dict[str, BaseCrawler] = {}
+        self._strategy_factory = strategy_factory or SourceStrategyFactory.create_default_factory()
 
     def _get_crawler(self, source_type: str) -> BaseCrawler | None:
         """Get or create a crawler instance for the given source type."""
@@ -222,6 +334,106 @@ class ContentManager:
 
         return result
 
+    def get_today_items(self) -> list[dict]:
+        """获取今日从所有来源已存储的历史内容 (由策略工厂驱动,无硬编码)."""
+        all_items = []
+        for source_type in self._strategy_factory.get_all_source_types():
+            strategy = self._strategy_factory.get_strategy(source_type)
+            if strategy:
+                items = strategy.get_today_items(self._tracker)
+                all_items.extend(items)
+        return all_items
+
+    def merge_historical_items(
+        self,
+        current_items: list[ContentItem],
+    ) -> list[ContentItem]:
+        """合并今日历史内容到当前内容列表,去重后返回."""
+        new_urls = {item.url for item in current_items}
+        today_items = self.get_today_items()
+        today_article_ids = [
+            f"{item['source']}:{item['url']}"
+            for item in today_items
+            if item["url"] not in new_urls
+        ]
+
+        if not today_article_ids:
+            return current_items
+
+        stored_metadata = {
+            item["article_id"]: item
+            for item in self._tracker.get_articles_by_ids(today_article_ids)
+        }
+
+        merged = list(current_items)
+        for article_id in today_article_ids:
+            url = article_id.split(":", 1)[1] if ":" in article_id else article_id
+            if url in new_urls:
+                continue
+
+            meta = stored_metadata.get(article_id, {})
+            source_type = meta.get("source", "web")
+            strategy = self._strategy_factory.get_strategy(source_type)
+
+            if strategy:
+                historical_item = strategy.create_historical_item(meta)
+                merged.append(historical_item)
+                new_urls.add(url)
+                logger.info(f"合并今日历史内容: {url} (来源: {source_type})")
+            else:
+                logger.warning(f"未找到来源策略: {source_type}, 跳过 {url}")
+
+        return merged
+
     def is_already_crawled(self, source: str, url: str) -> bool:
         """Check if a URL has already been crawled (exposed for testing)."""
         return self._tracker.is_crawled(source, url)
+
+    def enrich(
+        self,
+        topic_groups: list[dict],
+        new_items: list[ContentItem],
+    ) -> list[dict]:
+        """
+        检索历史相关内容,并将新内容存入向量库.
+
+        Args:
+            topic_groups: 主题分组列表,每个分组包含 topic, summary, articles
+            new_items: 本次新采集的内容列表
+
+        Returns:
+            更新后的 topic_groups (每个分组包含 related_historical)
+        """
+        # 当前文章 URL 集合,用于排除
+        current_urls = {item.url for item in new_items}
+
+        for group in topic_groups:
+            query = f"{group['topic']}: {group['summary']}"
+            results = self._vector_store.search(query, k=5)
+            related = []
+
+            # 获取历史文章的元数据 (从 SQLite)
+            result_ids = [r["id"] for r in results]
+            historical_metadata = {
+                item["article_id"]: item
+                for item in self._tracker.get_articles_by_ids(result_ids)
+            }
+
+            for r in results:
+                article_id = r["id"]
+                url = article_id.split(":", 1)[1] if ":" in article_id else article_id
+                if url not in current_urls:
+                    meta = historical_metadata.get(article_id, {})
+                    related.append({
+                        "title": meta.get("title", ""),
+                        "summary": r["document"][:200] if r["document"] else "",
+                        "url": url,
+                    })
+            group["related_historical"] = related
+
+        # 存入新内容: 先保存元数据到 SQLite,再存入向量库
+        if new_items:
+            self._vector_store.add(new_items)
+            logger.info(f"已将 {len(new_items)} 条新内容存入向量库和 SQLite")
+
+        return topic_groups

@@ -1,5 +1,6 @@
 from typing import TypedDict
 
+from comp_synth.orchestration.content_manager import ContentManager
 from comp_synth.schema.content_item import ContentItem
 
 
@@ -22,3 +23,4 @@ class PipelineState(TypedDict):
     report: str
     publish_results: dict
     errors: list[str]
+    content_manager: ContentManager | None
