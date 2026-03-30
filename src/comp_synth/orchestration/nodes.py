@@ -8,6 +8,7 @@ from loguru import logger
 
 from comp_synth.config import settings
 from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
+from comp_synth.crawlers.dynamic_web_crawler import DynamicWebCrawler
 from comp_synth.crawlers.rss import RSSCrawler
 from comp_synth.llm_provider.registry import llm_registry
 from comp_synth.orchestration.state import PipelineState
@@ -20,6 +21,7 @@ from comp_synth.store.vector_store import VectorStore
 CRAWLER_MAP = {
     "rss": RSSCrawler,
     "web": AdaptiveWebCrawler,
+    "dynamic": DynamicWebCrawler,
 }
 
 
