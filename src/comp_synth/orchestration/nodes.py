@@ -12,9 +12,6 @@ from comp_synth.orchestration.content_manager import ContentManager
 from comp_synth.orchestration.state import PipelineState
 from comp_synth.prompt import CONTENT_ANALYST_PROMPT, REPORT_GENERATOR_PROMPT
 from comp_synth.report_format_checker import ReportFormatChecker
-from comp_synth.schema.content_item import WebPageItem
-from comp_synth.store.crawl_tracker import CrawlTracker
-from comp_synth.store.vector_store import VectorStore
 
 
 async def fetch_sources(state: PipelineState) -> dict:
@@ -25,7 +22,7 @@ async def fetch_sources(state: PipelineState) -> dict:
 
     sources = config.get("sources", [])
 
-    # Thin wrapper - delegates all orchestration to ContentManager
+    # Create ContentManager and store in state for later use by deduplicate
     manager = ContentManager()
     result = await manager.fetch_all(sources)
 
@@ -37,49 +34,23 @@ async def fetch_sources(state: PipelineState) -> dict:
     return {
         "sources": sources,
         "raw_items": result.items,
+        "content_manager": manager,
         "errors": result.errors,
     }
 
 
 async def deduplicate(state: PipelineState) -> dict:
-    """去重，过滤已爬取的内容，并合并今日已存储的历史内容"""
-    tracker = CrawlTracker()
+    """委托 ContentManager 合并历史内容,过滤已爬取的内容"""
+    manager = state.get("content_manager")
     raw_items = state.get("raw_items", [])
-    new_items = []
-    new_urls = set()
 
-    # 1. 处理本次新爬取的内容
-    for item in raw_items:
-        new_items.append(item)
-        new_urls.add(item.url)
+    if manager is None:
+        logger.warning("ContentManager not in state, skipping historical merge")
+        return {"new_items": list(raw_items)}
 
-    # 2. 合并今日在本次运行前已存储的历史内容
-    # 元数据从 SQLite 获取，内容从 VectorStore 获取
-    today_items = tracker.get_today_items("web")
-    today_article_ids = [f"web:{item['url']}" for item in today_items if item["url"] not in new_urls]
+    new_items = manager.merge_historical_items(raw_items)
 
-    if today_article_ids:
-        # 从 SQLite 获取元数据
-        stored_metadata = {item["article_id"]: item for item in tracker.get_articles_by_ids(today_article_ids)}
-
-        for article_id in today_article_ids:
-            url = article_id.split(":", 1)[1] if ":" in article_id else article_id
-            if url in new_urls:
-                continue
-
-            meta = stored_metadata.get(article_id, {})
-            historical_item = WebPageItem(
-                source=meta.get("source", "web"),
-                url=url,
-                title=meta.get("title", ""),
-                summary=meta.get("summary", ""),
-                collected_at=datetime.fromisoformat(meta.get("crawled_at", datetime.now().isoformat())),
-            )
-            new_items.append(historical_item)
-            new_urls.add(url)
-            logger.info(f"合并今日历史内容: {url}")
-
-    logger.info(f"去重完成: {len(raw_items)} 条原始内容 → {len(new_items)} 条最终内容")
+    logger.info(f"去重和合并完成: {len(raw_items)} 条原始内容 → {len(new_items)} 条最终内容")
     return {"new_items": new_items}
 
 
@@ -145,41 +116,18 @@ URL: {item.url}
 
 
 async def enrich(state: PipelineState) -> dict:
-    """检索历史相关内容，并将新内容存入向量库"""
-    tracker = CrawlTracker()
-    vs = VectorStore()
+    """委托 ContentManager 检索历史相关内容,并将新内容存入向量库"""
+    manager = state.get("content_manager")
     topic_groups = state.get("topic_groups", [])
     new_items = state.get("new_items", [])
 
-    # 当前文章 URL 集合，用于排除
-    current_urls = {item.url for item in new_items}
+    if manager is None:
+        logger.warning("ContentManager not in state, skipping enrich")
+        return {"topic_groups": topic_groups}
 
-    for group in topic_groups:
-        query = f"{group['topic']}: {group['summary']}"
-        results = vs.search(query, k=5)
-        related = []
-        # 获取历史文章的元数据（从 SQLite）
-        result_ids = [r["id"] for r in results]
-        historical_metadata = {item["article_id"]: item for item in tracker.get_articles_by_ids(result_ids)}
+    enriched_groups = manager.enrich(topic_groups, new_items)
 
-        for r in results:
-            article_id = r["id"]
-            url = article_id.split(":", 1)[1] if ":" in article_id else article_id
-            if url not in current_urls:
-                meta = historical_metadata.get(article_id, {})
-                related.append({
-                    "title": meta.get("title", ""),
-                    "summary": r["document"][:200] if r["document"] else "",
-                    "url": url,
-                })
-        group["related_historical"] = related
-
-    # 存入新内容：先保存元数据到 SQLite，再存入向量库
-    if new_items:
-        vs.add(new_items)
-        logger.info(f"已将 {len(new_items)} 条新内容存入向量库和 SQLite")
-
-    return {"topic_groups": topic_groups}
+    return {"topic_groups": enriched_groups}
 
 
 async def publish(state: PipelineState) -> dict:
@@ -239,3 +187,8 @@ async def publish(state: PipelineState) -> dict:
             "format_check": result,
         },
     }
+
+def use_last_digest(state: PipelineState) -> None:
+    """使用上一次的摘要"""
+    logger.info("距离上一次没有新内容更新,使用上一次摘要")
+    return
