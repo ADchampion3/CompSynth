@@ -119,12 +119,13 @@ class TestDynamicWebCrawlerUnit:
 
         async def run():
             crawler = DynamicWebCrawler()
+            crawler._delegate._is_list_page = MagicMock(return_value=False)
             crawler._delegate._crawl_detail_page = AsyncMock(return_value=[])
             with patch.object(
                 crawler, "_fetch_html", return_value=normal_html
             ) as mock_fetch:
                 with patch.object(
-                    crawler, "_fetch_with_chrome"
+                    crawler, "_fetch_html_with_browser"
                 ) as mock_chrome:
                     await crawler.fetch(
                         {"url": "https://example.com"}
@@ -142,13 +143,14 @@ class TestDynamicWebCrawlerUnit:
 
         async def run():
             crawler = DynamicWebCrawler()
+            crawler._delegate._is_list_page = MagicMock(return_value=False)
             crawler._delegate._crawl_detail_page = AsyncMock(return_value=[])
             with patch.object(
                 crawler, "_fetch_html", return_value=spa_html
             ) as mock_fetch:
                 with patch.object(
                     crawler,
-                    "_fetch_with_chrome",
+                    "_fetch_html_with_browser",
                     return_value="<html><body><article>Rendered</article></body></html>",
                 ) as mock_chrome:
                     await crawler.fetch({"url": "https://spa.example.com"})
@@ -165,13 +167,14 @@ class TestDynamicWebCrawlerUnit:
 
         async def run():
             crawler = DynamicWebCrawler()
+            crawler._delegate._is_list_page = MagicMock(return_value=False)
             crawler._delegate._crawl_detail_page = AsyncMock(return_value=[])
             with patch.object(
                 crawler, "_fetch_html", return_value=normal_html
             ) as mock_fetch:
                 with patch.object(
                     crawler,
-                    "_fetch_with_chrome",
+                    "_fetch_html_with_browser",
                     return_value="<html><body>rendered</body></html>",
                 ) as mock_chrome:
                     await crawler.fetch(
@@ -190,13 +193,14 @@ class TestDynamicWebCrawlerUnit:
         """httpx 失败时应回退到 Chrome"""
         async def run():
             crawler = DynamicWebCrawler()
+            crawler._delegate._is_list_page = MagicMock(return_value=False)
             crawler._delegate._crawl_detail_page = AsyncMock(return_value=[])
             with patch.object(
                 crawler, "_fetch_html", side_effect=Exception("Network error")
             ):
                 with patch.object(
                     crawler,
-                    "_fetch_with_chrome",
+                    "_fetch_html_with_browser",
                     return_value="<html><body>rendered</body></html>",
                 ) as mock_chrome:
                     await crawler.fetch({"url": "https://example.com"})
@@ -212,13 +216,14 @@ class TestDynamicWebCrawlerUnit:
 
         async def run():
             crawler = DynamicWebCrawler()
+            crawler._delegate._is_list_page = MagicMock(return_value=False)
             crawler._delegate._crawl_detail_page = AsyncMock(return_value=[])
 
             with patch.object(
                 crawler, "_fetch_html", side_effect=Exception("fail")
             ):
                 with patch.object(
-                    crawler, "_fetch_with_chrome", return_value=rendered_html
+                    crawler, "_fetch_html_with_browser", return_value=rendered_html
                 ):
                     await crawler.fetch({"url": "https://example.com"})
                     crawler._delegate._crawl_detail_page.assert_called_once_with(
