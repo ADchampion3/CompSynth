@@ -24,7 +24,8 @@ dependencies = [
   "langchain-chroma>=0.2",
   "langgraph>=0.2",
   "pyyaml>=6.0",
-  "DrissionPage>=4.1.0"
+  "tenacity>=8.0",
+  "DrissionPage>=4.0"
 ]
 
 [project.scripts]

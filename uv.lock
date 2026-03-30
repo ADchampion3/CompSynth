@@ -365,6 +365,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyyaml" },
     { name = "readability-lxml" },
+    { name = "tenacity" },
 ]
 
 [package.dev-dependencies]
@@ -377,7 +378,7 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12" },
     { name = "chromadb", specifier = ">=0.5" },
-    { name = "drissionpage", specifier = ">=4.1.0" },
+    { name = "drissionpage", specifier = ">=4.0" },
     { name = "feedparser", specifier = ">=6.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain-anthropic", specifier = ">=0.3" },
@@ -389,6 +390,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "readability-lxml", specifier = ">=0.8" },
+    { name = "tenacity", specifier = ">=8.0" },
 ]
 
 [package.metadata.requires-dev]
