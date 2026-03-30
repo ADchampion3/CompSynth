@@ -1,26 +1,39 @@
-"""ContentManager - orchestrates content fetching from multiple sources."""
+"""ContentManager - orchestrates content fetching, deduplication, and persistence."""
 
 from dataclasses import dataclass, field
 from typing import Protocol
+from urllib.parse import urlparse
 
 from loguru import logger
 
 from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
 from comp_synth.crawlers.base import BaseCrawler
 from comp_synth.crawlers.rss import RSSCrawler
-from comp_synth.schema.content_item import ContentItem
+from comp_synth.schema.content_item import ContentItem, RSSItem, WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
 
 
-class CrawlerProtocol(Protocol):
-    """Protocol defining the crawler interface expected by ContentManager."""
+class RSSCrawlerProtocol(Protocol):
+    """Protocol for RSS crawler interface."""
 
-    async def fetch(
-        self,
-        source_config: dict,
-        user_selectors: list[dict[str, str]] | None = None,
-    ) -> list[ContentItem]:
-        """Fetch content from a single source."""
+    async def fetch_feed(self, source_config: dict) -> list[RSSItem]:
+        """Fetch raw RSS items without dedup/persistence."""
+        ...
+
+    async def maybe_fetch_detail(self, item: RSSItem, site_name: str) -> WebPageItem | RSSItem:
+        """Fetch detail page if summary is insufficient."""
+        ...
+
+
+class WebCrawlerProtocol(Protocol):
+    """Protocol for web crawler interface."""
+
+    async def fetch_page(self, url: str, user_selectors: list[dict[str, str]] | None = None) -> list[WebPageItem]:
+        """Fetch raw items from a page without dedup/persistence."""
+        ...
+
+    async def maybe_fetch_detail(self, item: WebPageItem, site_name: str) -> WebPageItem | None:
+        """Fetch detail page if summary is insufficient."""
         ...
 
 
@@ -40,11 +53,10 @@ class ContentManager:
     Responsibilities:
     1. Crawler selection based on source type
     2. User selector management (passing from subscriptions.yaml)
-    3. Cross-source aggregation
-    4. Error handling per source
-    5. Optional: dedup bridging at orchestration level
-
-    Does NOT own persistence - crawlers handle their own save via CrawlTracker.
+    3. Deduplication via CrawlTracker
+    4. Detail-fetch orchestration (calls maybe_fetch_detail when summary insufficient)
+    5. Persistence to CrawlTracker after all items collected
+    6. Cross-source aggregation and error handling
     """
 
     CRAWLER_MAP: dict[str, type[BaseCrawler]] = {
@@ -73,18 +85,100 @@ class ContentManager:
 
         return self._crawlers[source_type]
 
+    def _detect_site(self, url: str) -> str:
+        """Detect site name from URL."""
+        return urlparse(url).netloc or "unknown"
+
+    async def _fetch_rss_source(
+        self,
+        source: dict,
+        crawler: RSSCrawler,
+    ) -> list[ContentItem]:
+        """Fetch items from an RSS source with dedup, detail-fetch, and persistence."""
+        feed_url = source["url"]
+        raw_items = await crawler.fetch_feed(source)
+
+        processed: list[ContentItem] = []
+        for item in raw_items:
+            # Deduplication check
+            if self._tracker.is_crawled("rss", item.url):
+                logger.info(f"[ContentManager] RSS: {item.url} 已爬取, 跳过")
+                continue
+
+            site_name = self._detect_site(item.url)
+
+            # Detail-fetch if summary insufficient
+            if not crawler._is_summary_enough(item.summary):
+                item = await crawler.maybe_fetch_detail(item, site_name)
+
+            processed.append(item)
+
+        # Persist all processed items
+        if processed:
+            self._tracker.save_articles([
+                {
+                    "article_id": item.id,
+                    "title": item.title,
+                    "summary": item.summary,
+                    "published_at": item.published_at.isoformat() if item.published_at else None,
+                    "metadata": {"feed_url": feed_url},
+                }
+                for item in processed
+            ])
+
+        return processed
+
+    async def _fetch_web_source(
+        self,
+        source: dict,
+        crawler: AdaptiveWebCrawler,
+    ) -> list[ContentItem]:
+        """Fetch items from a web source with dedup, detail-fetch, and persistence."""
+        url = source["url"]
+        user_selectors = source.get("selectors")
+
+        raw_items = await crawler.fetch_page(url, user_selectors=user_selectors)
+
+        processed: list[ContentItem] = []
+        for item in raw_items:
+            # Deduplication check
+            if self._tracker.is_crawled("web", item.url):
+                logger.info(f"[ContentManager] Web: {item.url} 已爬取, 跳过")
+                continue
+
+            site_name = self._detect_site(item.url)
+
+            # Detail-fetch if summary insufficient
+            if not crawler._is_summary_enough(item.summary):
+                enriched = await crawler.maybe_fetch_detail(item, site_name)
+                if enriched is not None:
+                    item = enriched
+
+            processed.append(item)
+
+        # Persist all processed items
+        if processed:
+            self._tracker.save_articles([
+                {
+                    "article_id": item.id,
+                    "title": item.title,
+                    "summary": item.summary,
+                    "published_at": item.published_at.isoformat() if item.published_at else None,
+                }
+                for item in processed
+            ])
+
+        return processed
+
     async def fetch_all(
         self,
         sources: list[dict],
-        skip_already_crawled: bool = False,
     ) -> FetchResult:
         """
         Fetch content from all sources.
 
         Args:
             sources: List of source configs from subscriptions.yaml
-            skip_already_crawled: If True, skip URLs already in CrawlTracker
-                                  (adds dedup at orchestration level)
 
         Returns:
             FetchResult with items, errors, and source counts
@@ -103,21 +197,12 @@ class ContentManager:
                 continue
 
             try:
-                user_selectors = source.get("selectors")
-                items = await crawler.fetch(
-                    source,
-                    user_selectors=user_selectors,
-                )
-
-                # Optional dedup at orchestration level
-                if skip_already_crawled:
-                    original_count = len(items)
-                    items = self._filter_already_crawled(items, source_type)
-                    skipped = original_count - len(items)
-                    if skipped > 0:
-                        logger.info(
-                            f"[ContentManager] 跳过 {skipped} 条已爬取内容: {source_name}"
-                        )
+                if source_type == "rss":
+                    items = await self._fetch_rss_source(source, crawler)
+                elif source_type == "web":
+                    items = await self._fetch_web_source(source, crawler)
+                else:
+                    items = await crawler.fetch(source, user_selectors=source.get("selectors"))
 
                 result.items.extend(items)
                 result.source_counts[source_name] = len(items)
@@ -132,18 +217,6 @@ class ContentManager:
                 result.source_counts[source_name] = 0
                 logger.exception(f"ContentManager: {error_msg}")
 
-        return result
-
-    def _filter_already_crawled(
-        self,
-        items: list[ContentItem],
-        source_type: str,
-    ) -> list[ContentItem]:
-        """Filter out items that have already been crawled."""
-        result = []
-        for item in items:
-            if not self._tracker.is_crawled(source_type, item.url):
-                result.append(item)
         return result
 
     def is_already_crawled(self, source: str, url: str) -> bool:

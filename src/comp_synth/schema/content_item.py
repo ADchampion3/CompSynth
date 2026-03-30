@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class ContentItem(BaseModel):
     """内容项基础模型，所有信息源的结构化输出"""
 
+    id: str
     source: str
     url: str
     title: str = ""

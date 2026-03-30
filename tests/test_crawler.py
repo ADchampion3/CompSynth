@@ -11,7 +11,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
-from comp_synth.schema.content_item import WebPageItem
 from comp_synth.schema.site_chema import SiteSchema
 from comp_synth.store.schema_store import SchemaStore
 
@@ -21,7 +20,7 @@ from comp_synth.store.schema_store import SchemaStore
 
 @pytest.fixture
 def mock_schema_store(monkeypatch):
-    """Mock SchemaStore 和 CrawlTracker 避免数据库依赖"""
+    """Mock SchemaStore 避免数据库依赖"""
     mock_store = MagicMock()
     mock_store.get.return_value = None
     mock_store.can_use_llm.return_value = True
@@ -29,11 +28,6 @@ def mock_schema_store(monkeypatch):
     mock_store.mark_llm_called.return_value = None
     mock_store.update_list_selectors.return_value = None
     monkeypatch.setattr("comp_synth.crawlers.adaptive_web_crawler.SchemaStore", lambda: mock_store)
-
-    mock_tracker = MagicMock()
-    mock_tracker.is_crawled.return_value = False
-    mock_tracker.mark_crawled.return_value = None
-    monkeypatch.setattr("comp_synth.crawlers.adaptive_web_crawler.CrawlTracker", lambda: mock_tracker)
 
     return mock_store
 
@@ -233,22 +227,19 @@ class TestAdaptiveWebCrawlerIntegration:
         asyncio.run(run())
 
     def test_duplicate_url_skipped(self):
-        """测试重复 URL 被跳过"""
+        """测试重复 URL 由 ContentManager 跳过（crawler 本身不处理去重）"""
         async def run():
+            # Deduplication is now handled by ContentManager, not the crawler.
+            # This test verifies the crawler still returns items for duplicate URLs.
             crawler = AdaptiveWebCrawler()
-            mock_tracker = MagicMock()
-            mock_tracker.is_crawled.side_effect = [False, True]
-            mock_tracker.mark_crawled = MagicMock()
-            crawler._tracker = mock_tracker
-
             url = "https://example.com/test-article"
 
-            items1 = await crawler.fetch({"url": url})
-            assert len(items1) >= 0
+            await crawler.fetch_page(url)
+            # crawler 不做去重，返回结果取决于页面内容
 
-            items2 = await crawler.fetch({"url": url})
+            items2 = await crawler.fetch_page(url)
+            # ContentManager 会在上层处理去重，crawler 本身不跳过
             assert isinstance(items2, list)
-            assert len(items2) == 0, "重复 URL 应被跳过，返回空列表"
 
         asyncio.run(run())
 
@@ -274,7 +265,6 @@ class TestSchemaPersistenceAndReuse:
 
         from comp_synth.crawlers import adaptive_web_crawler
         adaptive_web_crawler.AdaptiveWebCrawler._schema_store = None
-        adaptive_web_crawler.AdaptiveWebCrawler._tracker = None
 
         yield db_path
 
@@ -412,32 +402,21 @@ class TestListPageExtraction:
         asyncio.run(run())
 
     def test_crawl_list_page_with_mocked_detail(self, mock_schema_store, meituan_list_html):
-        """测试列表页爬取返回多个 WebPageItem（mock 详情页）"""
+        """测试列表页爬取返回多个 WebPageItem（detail-fetch 由 ContentManager 调用）"""
         async def run():
             crawler = AdaptiveWebCrawler()
 
-            async def mock_detail(url):
-                return WebPageItem(
-                    url=url,
-                    title=f"详情页标题: {url}",
-                    content=f"这是 {url} 的正文内容",
-                    summary="摘要",
-                    site_name="tech.meituan.com",
-                )
-
-            crawler._fetch_article_detail = mock_detail
-
+            # _crawl_list_page returns items without detail-fetch (handled by ContentManager)
             items = await crawler._crawl_list_page(meituan_list_html, "https://tech.meituan.com/")
 
             assert len(items) >= 2, f"应该返回至少2个条目，实际: {len(items)}"
             for item in items:
                 assert item.url.startswith("https://tech.meituan.com/")
                 assert item.title != ""
-                assert item.content != "" or item.summary != ""
         asyncio.run(run())
 
     def test_crawl_list_page_skips_detail_when_summary_enough(self, mock_schema_store):
-        """测试 summary 足够长时不爬详情页"""
+        """测试列表页提取时返回摘要（detail-fetch 由 ContentManager 判断）"""
         html_with_long_summary = """
         <html>
         <body>
@@ -453,21 +432,11 @@ class TestListPageExtraction:
         async def run():
             crawler = AdaptiveWebCrawler()
 
-            async def mock_detail(url):
-                return WebPageItem(
-                    url=url,
-                    title=f"详情页标题: {url}",
-                    content=f"这是 {url} 的正文内容",
-                    summary="摘要",
-                    site_name="example.com",
-                )
-
-            crawler._fetch_article_detail = mock_detail
-
+            # _crawl_list_page returns raw items from list page, no detail fetch
             items = await crawler._crawl_list_page(html_with_long_summary, "https://example.com/")
 
             assert len(items) == 1
-            assert items[0].content == ""
+            # ContentManager will call maybe_fetch_detail only when _is_summary_enough returns False
             assert len(items[0].summary) > 100
         asyncio.run(run())
 
