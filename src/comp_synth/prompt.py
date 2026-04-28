@@ -97,6 +97,12 @@ DOM_PROMPTS = {
 """,
 }
 
+# Article Summary Prompt (used in ContentManager for per-article summarization)
+ARTICLE_SUMMARY_PROMPT = """请用2-3句话总结以下文章的核心内容。要求：
+1. 保留关键信息（主要观点、数据、结论）
+2. 总字数控制在200字以内
+3. 直接输出总结内容，不要加前缀或标题"""
+
 # Content Analyst Prompt (used in nodes.py summarize)
 CONTENT_ANALYST_PROMPT = """你是一个内容分析师。你将收到一组文章。
 你的任务：

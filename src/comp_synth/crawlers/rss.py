@@ -33,10 +33,8 @@ class RSSCrawler(BaseCrawler):
             )
         return summary
 
-    async def maybe_fetch_detail(self, item: RSSItem, site_name: str) -> WebPageItem | RSSItem:
-        """如果 item.summary 不足则爬详情页，否则返回原 item"""
-        if self._is_summary_enough(item.summary):
-            return item
+    async def fetch_detail(self, item: RSSItem, site_name: str) -> WebPageItem | RSSItem:
+        """爬取详情页，用 readability 提取内容（始终执行）"""
         try:
             html = await self._fetch_html(item.url)
             doc = Document(html)
@@ -48,7 +46,7 @@ class RSSCrawler(BaseCrawler):
                 BeautifulSoup(content_html, "html.parser").get_text(separator="\n", strip=True)
                 if content_html else ""
             )
-            if not self._is_summary_enough(summary_text) and content_text:
+            if not summary_text and content_text:
                 summary_text = content_text
             return RSSItem(
                 url=item.url,
@@ -89,5 +87,5 @@ class RSSCrawler(BaseCrawler):
         return items
 
     async def fetch(self, source_config: dict, user_selectors: list[dict[str, str]] | None = None) -> list[RSSItem]:
-        """兼容接口，内部委托给 fetch_feed + maybe_fetch_detail"""
+        """兼容接口，内部委托给 fetch_feed"""
         return await self.fetch_feed(source_config)

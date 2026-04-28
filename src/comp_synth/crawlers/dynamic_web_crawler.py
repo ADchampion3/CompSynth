@@ -95,6 +95,6 @@ class DynamicWebCrawler(BaseCrawler):
         else:
             return await self._delegate._crawl_detail_page(html, url)
 
-    async def maybe_fetch_detail(self, item: WebPageItem, site_name: str) -> WebPageItem | None:
+    async def fetch_detail(self, item: WebPageItem, site_name: str) -> WebPageItem | None:
         """委托给 AdaptiveWebCrawler 处理详情页获取"""
-        return await self._delegate.maybe_fetch_detail(item, site_name)
+        return await self._delegate.fetch_detail(item, site_name)

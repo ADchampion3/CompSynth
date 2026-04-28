@@ -436,7 +436,7 @@ class TestListPageExtraction:
             items = await crawler._crawl_list_page(html_with_long_summary, "https://example.com/")
 
             assert len(items) == 1
-            # ContentManager will call maybe_fetch_detail only when _is_summary_enough returns False
+            # ContentManager will call fetch_detail for every item regardless of summary length
             assert len(items[0].summary) > 100
         asyncio.run(run())
 

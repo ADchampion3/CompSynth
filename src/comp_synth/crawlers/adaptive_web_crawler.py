@@ -286,10 +286,8 @@ class AdaptiveWebCrawler(BaseCrawler):
             logger.warning(f"详情页爬取失败 {url}: {e}")
         return None
 
-    async def maybe_fetch_detail(self, item: WebPageItem, site_name: str) -> WebPageItem | None:
-        """如果 item.summary 不足则爬详情页，否则返回原 item"""
-        if self._is_summary_enough(item.summary):
-            return item
+    async def fetch_detail(self, item: WebPageItem, site_name: str) -> WebPageItem | None:
+        """爬取详情页（始终执行）"""
         return await self._fetch_article_detail(item.url)
 
     async def _crawl_list_page(self, html: str, url: str, user_selectors: list[dict[str, str]] | None = None) -> list[WebPageItem]:
