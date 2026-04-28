@@ -122,8 +122,8 @@ class RSSCrawlerProtocol(Protocol):
         """Fetch raw RSS items without dedup/persistence."""
         ...
 
-    async def maybe_fetch_detail(self, item: RSSItem, site_name: str) -> WebPageItem | RSSItem:
-        """Fetch detail page if summary is insufficient."""
+    async def fetch_detail(self, item: RSSItem, site_name: str) -> WebPageItem | RSSItem:
+        """Fetch article detail page (always executes)."""
         ...
 
 
@@ -134,8 +134,8 @@ class WebCrawlerProtocol(Protocol):
         """Fetch raw items from a page without dedup/persistence."""
         ...
 
-    async def maybe_fetch_detail(self, item: WebPageItem, site_name: str) -> WebPageItem | None:
-        """Fetch detail page if summary is insufficient."""
+    async def fetch_detail(self, item: WebPageItem, site_name: str) -> WebPageItem | None:
+        """Fetch article detail page (always executes)."""
         ...
 
 
@@ -156,7 +156,7 @@ class ContentManager:
     1. Crawler selection based on source type
     2. User selector management (passing from subscriptions.yaml)
     3. Deduplication via CrawlTracker
-    4. Detail-fetch orchestration (calls maybe_fetch_detail when summary insufficient)
+    4. Detail-fetch orchestration (always fetch detail page + LLM summarize)
     5. Persistence to CrawlTracker after all items collected
     6. Cross-source aggregation and error handling
     """
@@ -204,12 +204,28 @@ class ContentManager:
         """Detect site name from URL."""
         return urlparse(url).netloc or "unknown"
 
+    async def _summarize_content(self, title: str, content: str) -> str:
+        """用 LLM 从 readability 提取的 content 生成 summary"""
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        from comp_synth.config import settings
+        from comp_synth.llm_provider.registry import llm_registry
+        from comp_synth.prompt import ARTICLE_SUMMARY_PROMPT
+
+        truncated = content[:3000] if len(content) > 3000 else content
+        llm = llm_registry.get(settings.model)
+        response = await llm.ainvoke([
+            SystemMessage(content=ARTICLE_SUMMARY_PROMPT),
+            HumanMessage(content=f"标题：{title}\n\n内容：{truncated}"),
+        ])
+        return response.content.strip()
+
     async def _fetch_rss_source(
         self,
         source: dict,
         crawler: RSSCrawler,
     ) -> list[ContentItem]:
-        """Fetch items from an RSS source with dedup, detail-fetch, and persistence."""
+        """Fetch items from an RSS source with dedup, detail-fetch, LLM summarization, and persistence."""
         feed_url = source["url"]
         raw_items = await crawler.fetch_feed(source)
 
@@ -222,9 +238,27 @@ class ContentManager:
 
             site_name = self._detect_site(item.url)
 
-            # Detail-fetch if summary insufficient
-            if not crawler._is_summary_enough(item.summary):
-                item = await crawler.maybe_fetch_detail(item, site_name)
+            # Always fetch detail page
+            detail = await crawler.fetch_detail(item, site_name)
+            if isinstance(detail, RSSItem):
+                item = detail
+
+            # LLM summarization from extracted content
+            if item.content:
+                try:
+                    summary = await self._summarize_content(item.title, item.content)
+                    if summary:
+                        item = RSSItem(
+                            url=item.url,
+                            title=item.title,
+                            summary=summary,
+                            content=item.content,
+                            published_at=item.published_at,
+                            collected_at=item.collected_at,
+                            metadata=item.metadata,
+                        )
+                except Exception as e:
+                    logger.warning(f"LLM 总结失败 {item.url}: {e}, 使用 readability summary")
 
             processed.append(item)
 
@@ -241,7 +275,7 @@ class ContentManager:
         source: dict,
         crawler: AdaptiveWebCrawler,
     ) -> list[ContentItem]:
-        """Fetch items from a web source with dedup, detail-fetch, and persistence."""
+        """Fetch items from a web source with dedup, detail-fetch, LLM summarization, and persistence."""
         url = source["url"]
         user_selectors = source.get("selectors")
 
@@ -256,11 +290,26 @@ class ContentManager:
 
             site_name = self._detect_site(item.url)
 
-            # Detail-fetch if summary insufficient
-            if not crawler._is_summary_enough(item.summary):
-                enriched = await crawler.maybe_fetch_detail(item, site_name)
-                if enriched is not None:
-                    item = enriched
+            # Always fetch detail page
+            enriched = await crawler.fetch_detail(item, site_name)
+            if enriched is not None:
+                item = enriched
+
+            # LLM summarization from extracted content
+            if item.content:
+                try:
+                    summary = await self._summarize_content(item.title, item.content)
+                    if summary:
+                        item = WebPageItem(
+                            url=item.url,
+                            title=item.title,
+                            summary=summary,
+                            content=item.content,
+                            collected_at=item.collected_at,
+                            metadata=item.metadata,
+                        )
+                except Exception as e:
+                    logger.warning(f"LLM 总结失败 {item.url}: {e}, 使用 readability summary")
 
             processed.append(item)
 
