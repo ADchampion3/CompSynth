@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     request_timeout: int = 30
     max_concurrent_requests: int = 5
     rss_lookback_days: int = 7
+    list_page_time_threshold_days: int = 7
+    list_page_count_threshold: int = 20
 
     # 订阅与输出
     subscriptions_path: Path = Path("./subscriptions.yaml")

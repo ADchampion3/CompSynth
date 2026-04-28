@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -102,6 +102,44 @@ class AdaptiveWebCrawler(BaseCrawler):
     def _has_valid_data(self, items: list[dict]) -> bool:
         """检查是否有有效数据（至少 title 和 url 非空）"""
         return any(item.get("title") and item.get("url") for item in items)
+
+    def _filter_items_by_container(self, items: list[dict]) -> list[dict]:
+        """
+        对列表页条目进行阈值过滤。
+
+        策略（先时间后数量）：
+        1. 有 published_at 的 item → 时间阈值过滤（超过阈值的丢弃）
+        2. 无 published_at 的 item → 数量阈值截断（超量的丢弃）
+        3. 合并两组结果返回
+        """
+        from comp_synth.config import settings
+
+        time_threshold_days = settings.list_page_time_threshold_days
+        count_threshold = settings.list_page_count_threshold
+
+        items_with_time = []
+        items_without_time = []
+
+        for item in items:
+            published_at = item.get("published_at")
+            if published_at is not None:
+                items_with_time.append(item)
+            else:
+                items_without_time.append(item)
+
+        # ① 有时间的：时间阈值过滤
+        if time_threshold_days > 0:
+            cutoff = datetime.now() - timedelta(days=time_threshold_days)
+            items_with_time = [
+                item for item in items_with_time
+                if item.get("published_at") and item["published_at"] >= cutoff
+            ]
+
+        # ② 无时间的：数量阈值截断
+        if count_threshold > 0:
+            items_without_time = items_without_time[:count_threshold]
+
+        return items_with_time + items_without_time
 
     def _normalize_and_dedupe(
         self, items: list[dict], base_url: str
@@ -302,6 +340,11 @@ class AdaptiveWebCrawler(BaseCrawler):
 
         items = await self._extract_list_items(html, url, site_name, user_selectors)
         logger.info("[crawl_list_page] 提取到 {count} 个列表条目", count=len(items))
+
+        # 阈值过滤
+        if items:
+            items = self._filter_items_by_container(items)
+            logger.info("[crawl_list_page] 阈值过滤后剩余 {count} 个条目", count=len(items))
 
         results = []
 

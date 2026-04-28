@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
+from comp_synth.schema.content_item import RSSItem
 from comp_synth.schema.site_chema import SiteSchema
 from comp_synth.store.schema_store import SchemaStore
 
@@ -173,6 +174,162 @@ class TestAdaptiveWebCrawler:
             crawler = AdaptiveWebCrawler()
             with pytest.raises(Exception):
                 await crawler._fetch_html("https://httpbin.org/status/404")
+
+        asyncio.run(run())
+
+    def test_filter_items_by_container_with_time_and_count(self, mock_schema_store, monkeypatch):
+        """测试先时间后数量的过滤逻辑"""
+        from datetime import datetime, timedelta
+
+        # 设置阈值
+        monkeypatch.setattr("comp_synth.config.settings.list_page_time_threshold_days", 7)
+        monkeypatch.setattr("comp_synth.config.settings.list_page_count_threshold", 5)
+
+        async def run():
+            crawler = AdaptiveWebCrawler()
+            now = datetime.now()
+
+            # 构造测试数据：3篇有时间的文章 + 6篇无时间文章
+            items = [
+                # 组1 - 有时间
+                {"url": "https://a.com/1", "title": "t1", "summary": "s1",
+                 "published_at": now - timedelta(days=3)},  # 3天前，通过7天阈值
+                {"url": "https://a.com/2", "title": "t2", "summary": "s2",
+                 "published_at": now - timedelta(days=10)}, # 10天前，不通过7天阈值
+                {"url": "https://a.com/3", "title": "t3", "summary": "s3",
+                 "published_at": now - timedelta(days=1)},  # 1天前，通过
+                # 组2 - 无时间（6篇，超过数量阈值5）
+                {"url": "https://a.com/4", "title": "t4", "summary": "s4",
+                 "published_at": None},
+                {"url": "https://a.com/5", "title": "t5", "summary": "s5",
+                 "published_at": None},
+                {"url": "https://a.com/6", "title": "t6", "summary": "s6",
+                 "published_at": None},
+                {"url": "https://a.com/7", "title": "t7", "summary": "s7",
+                 "published_at": None},
+                {"url": "https://a.com/8", "title": "t8", "summary": "s8",
+                 "published_at": None},
+                {"url": "https://a.com/9", "title": "t9", "summary": "s9",
+                 "published_at": None},  # 超过数量阈值5，应被过滤
+            ]
+
+            filtered = crawler._filter_items_by_container(items)
+
+            # 有时间的：只保留通过时间阈值的（3天前和1天前）= 2篇
+            # 无时间的：取前 count_threshold=5 篇 = 5篇
+            # 总计 = 7篇
+            assert len(filtered) == 7
+            urls = [item["url"] for item in filtered]
+            assert "https://a.com/2" not in urls  # 10天前被过滤
+            assert "https://a.com/9" not in urls  # 无时间文章超过数量阈值，被过滤
+            assert "https://a.com/4" in urls  # 无时间文章前5篇，保留
+
+        asyncio.run(run())
+
+    def test_filter_items_by_container_zero_threshold(self, mock_schema_store, monkeypatch):
+        """测试阈值为0时不过滤"""
+        from datetime import datetime, timedelta
+
+        # 设置阈值为0（不限）
+        monkeypatch.setattr("comp_synth.config.settings.list_page_time_threshold_days", 0)
+        monkeypatch.setattr("comp_synth.config.settings.list_page_count_threshold", 0)
+
+        async def run():
+            crawler = AdaptiveWebCrawler()
+            now = datetime.now()
+
+            items = [
+                {"url": "https://a.com/1", "title": "t1", "summary": "s1",
+                 "published_at": now - timedelta(days=100)},  # 100天前
+                {"url": "https://a.com/2", "title": "t2", "summary": "s2",
+                 "published_at": None},
+            ]
+
+            filtered = crawler._filter_items_by_container(items)
+
+            # 阈值为0，不过滤
+            assert len(filtered) == 2
+
+        asyncio.run(run())
+
+
+class TestRSSCrawlerFilter:
+    """RSSCrawler 阈值过滤测试"""
+
+    def test_filter_feed_items_with_time_and_count(self, monkeypatch):
+        """测试 RSS 先时间后数量的过滤逻辑"""
+        from datetime import datetime, timedelta
+
+        from comp_synth.crawlers.rss import RSSCrawler
+
+        # 设置阈值
+        monkeypatch.setattr("comp_synth.config.settings.list_page_time_threshold_days", 7)
+        monkeypatch.setattr("comp_synth.config.settings.list_page_count_threshold", 5)
+
+        async def run():
+            crawler = RSSCrawler()
+            now = datetime.now()
+
+            # 构造测试数据：有时时间和无时间的 entry
+            items = [
+                # 有时间，通过7天阈值
+                RSSItem(url="https://a.com/1", title="t1", summary="s1",
+                        published_at=now - timedelta(days=3)),
+                # 有时间，不通过7天阈值
+                RSSItem(url="https://a.com/2", title="t2", summary="s2",
+                        published_at=now - timedelta(days=10)),
+                # 无时间（6篇，超过数量阈值5）
+                RSSItem(url="https://a.com/3", title="t3", summary="s3",
+                        published_at=None),
+                RSSItem(url="https://a.com/4", title="t4", summary="s4",
+                        published_at=None),
+                RSSItem(url="https://a.com/5", title="t5", summary="s5",
+                        published_at=None),
+                RSSItem(url="https://a.com/6", title="t6", summary="s6",
+                        published_at=None),
+                RSSItem(url="https://a.com/7", title="t7", summary="s7",
+                        published_at=None),
+                RSSItem(url="https://a.com/8", title="t8", summary="s8",
+                        published_at=None),
+            ]
+
+            filtered = crawler._filter_feed_items(items)
+
+            # 有时间的只保留通过时间阈值的 = 1篇
+            # 无时间的取前5篇 = 5篇
+            # 总计 = 6篇
+            assert len(filtered) == 6
+            urls = [item.url for item in filtered]
+            assert "https://a.com/2" not in urls  # 10天前被过滤
+            assert "https://a.com/8" not in urls  # 超过数量阈值被过滤
+            assert "https://a.com/3" in urls  # 无时间文章前5篇
+
+        asyncio.run(run())
+
+    def test_filter_feed_items_zero_threshold(self, monkeypatch):
+        """测试阈值为0时不过滤"""
+        from datetime import datetime, timedelta
+
+        from comp_synth.crawlers.rss import RSSCrawler
+
+        monkeypatch.setattr("comp_synth.config.settings.list_page_time_threshold_days", 0)
+        monkeypatch.setattr("comp_synth.config.settings.list_page_count_threshold", 0)
+
+        async def run():
+            crawler = RSSCrawler()
+            now = datetime.now()
+
+            items = [
+                RSSItem(url="https://a.com/1", title="t1", summary="s1",
+                        published_at=now - timedelta(days=100)),
+                RSSItem(url="https://a.com/2", title="t2", summary="s2",
+                        published_at=None),
+            ]
+
+            filtered = crawler._filter_feed_items(items)
+
+            # 阈值为0，不过滤
+            assert len(filtered) == 2
 
         asyncio.run(run())
 

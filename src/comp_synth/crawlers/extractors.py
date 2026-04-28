@@ -1,5 +1,6 @@
 import asyncio
 import re
+from datetime import datetime
 from typing import List
 
 from bs4 import BeautifulSoup
@@ -11,12 +12,30 @@ from comp_synth.llm_provider.registry import llm_registry
 from comp_synth.prompt import DOM_PROMPTS
 
 
+def _parse_date_text(text: str) -> datetime | None:
+    """解析日期文本，支持多种格式"""
+    formats = [
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%Y年%m月%d日",
+        "%B %d, %Y",
+        "%d %B %Y",
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(text.strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+
 class ListItemSelector(BaseModel):
     """文章框架 CSS Selector"""
     item_container: str = ""
     url: str = ""
     title: str = ""
     summary: str = ""
+    time: str = ""  # 时间元素 CSS selector
 
 
 class ListItemSelectors(BaseModel):
@@ -189,6 +208,7 @@ class DOMExtractor:
             url_selector = selectors.get("url", "a[href]")
             title_selector = selectors.get("title", "h2")
             summary_selector = selectors.get("summary", "p")
+            time_selector = selectors.get("time", "")
 
             containers = soup.select(item_container)
             logger.info("[extract_list_items_with_selectors] 第 {index} 组选择器找到 {count} 个容器", index=selector_idx + 1, count=len(containers))
@@ -227,6 +247,24 @@ class DOMExtractor:
                 if summary_elem:
                     summary = summary_elem.get_text(strip=True)
 
+                # 提取时间
+                published_at = None
+                if time_selector:
+                    time_elem = container.select_one(time_selector)
+                    if time_elem:
+                        # 优先取 datetime 属性
+                        dt = time_elem.get("datetime", "")
+                        if dt:
+                            try:
+                                published_at = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+                            except Exception:
+                                pass
+                        # 其次取文本内容
+                        if published_at is None:
+                            time_text = time_elem.get_text(strip=True)
+                            if time_text:
+                                published_at = _parse_date_text(time_text)
+
                 if title and url:  # 至少需要标题和 URL
                     # 去重：基于 URL 去重
                     if url not in seen_urls:
@@ -235,6 +273,7 @@ class DOMExtractor:
                             "url": url,
                             "title": title,
                             "summary": summary,
+                            "published_at": published_at,
                         })
 
         logger.info("[extract_list_items_with_selectors] 提取完成 | extracted_count={count}（去重后）", count=len(all_items))
