@@ -27,3 +27,5 @@ class SiteSchema(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now())
     updated_at: datetime = Field(default_factory=lambda: datetime.now())
     last_llm_call: datetime | None = None
+    last_stale_refresh_call: datetime | None = None
+    stale_refresh_count: int = 0

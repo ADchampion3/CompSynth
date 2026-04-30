@@ -58,6 +58,18 @@ uv run python -m pytest -q
 ## Source Types
 
 `selectors` may be either a single mapping or a list of mappings. Lists are recommended.
+For `web` and `javascript` sources, CompSynth records each source's crawl count.
+When a cached selector-backed source returns zero new items across multiple successful crawl days, CompSynth can skip the stale cached selector once and ask the LLM to generate fresh selectors.
+Fetch errors and RSS sources do not count toward this selector refresh signal.
+
+Optional selector refresh settings:
+
+```bash
+set COMPSYNTH_SELECTOR_ZERO_REFRESH_ENABLED=true
+set COMPSYNTH_SELECTOR_ZERO_REFRESH_DAYS=3
+set COMPSYNTH_SELECTOR_ZERO_REFRESH_LOOKBACK_DAYS=7
+set COMPSYNTH_SELECTOR_ZERO_REFRESH_COOLDOWN_HOURS=24
+```
 
 ```yaml
 sources:

@@ -14,6 +14,7 @@ from comp_synth.crawlers.dynamic_web_crawler import DynamicWebCrawler
 from comp_synth.crawlers.rss import RSSCrawler
 from comp_synth.schema.content_item import ContentItem, RSSItem, WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
+from comp_synth.store.source_outcome_store import SourceOutcomeStore
 from comp_synth.store.vector_store import VectorStore
 
 # ============================================================================
@@ -192,6 +193,7 @@ class ContentManager:
         crawl_tracker: CrawlTracker | None = None,
         strategy_factory: SourceStrategyFactory | None = None,
         vector_store: VectorStore | None = None,
+        source_outcome_store: SourceOutcomeStore | None = None,
     ):
         """
         Initialize ContentManager.
@@ -207,6 +209,7 @@ class ContentManager:
         """
         self._tracker = crawl_tracker or CrawlTracker()
         self._vector_store = vector_store or VectorStore()
+        self._source_outcome_store = source_outcome_store or SourceOutcomeStore()
         self._crawlers: dict[str, BaseCrawler] = {}
         self._strategy_factory = strategy_factory or SourceStrategyFactory.create_default_factory()
         self._last_crawl_time: float = 0.0
@@ -238,6 +241,10 @@ class ContentManager:
     def _detect_site(self, url: str) -> str:
         """Detect site name from URL."""
         return urlparse(url).netloc or "unknown"
+
+    def _source_key(self, source: dict) -> str:
+        """Return a stable key for per-source crawl outcome tracking."""
+        return source.get("name") or source.get("url", "unknown")
 
     async def _summarize_content(self, title: str, content: str) -> tuple[str, list[str]]:
         """用 LLM 从 readability 提取的 content 生成 summary 和 tags"""
@@ -397,7 +404,12 @@ class ContentManager:
         if isinstance(crawler, DynamicWebCrawler):
             raw_items = await crawler.fetch(source, user_selectors=user_selectors)
         else:
-            raw_items = await crawler.fetch_page(url, user_selectors=user_selectors)
+            raw_items = await crawler.fetch_page(
+                url,
+                user_selectors=user_selectors,
+                source_key=self._source_key(source),
+                source_type="web",
+            )
         total = len(raw_items)
         logger.info(f"[Web] 获取到 {total} 条原始条目，开始并发处理 (concurrent={self.MAX_CONCURRENT}, delay={self.CRAWL_DELAY}s)")
 
@@ -495,6 +507,10 @@ class ContentManager:
             else:
                 result.items.extend(items)
                 result.source_counts[source_name] = len(items)
+
+        for source, (source_name, items, error) in zip(sources, results, strict=False):
+            count = 0 if error or items is None else len(items)
+            self._source_outcome_store.record_source_outcome(source, count, error)
 
         return result
 

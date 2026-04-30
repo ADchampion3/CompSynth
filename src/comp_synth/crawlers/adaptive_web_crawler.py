@@ -11,6 +11,7 @@ from comp_synth.schema.content_item import WebPageItem
 from comp_synth.schema.site_chema import SiteSchema
 from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.schema_store import SchemaStore
+from comp_synth.store.source_outcome_store import SourceOutcomeStore
 
 
 class AdaptiveWebCrawler(BaseCrawler):
@@ -28,6 +29,7 @@ class AdaptiveWebCrawler(BaseCrawler):
     def __init__(self):
         self._tracker = CrawlTracker()
         self._schema_store = SchemaStore()
+        self._source_outcome_store = SourceOutcomeStore()
         self._dom_extractor = DOMExtractor()
 
     def _detect_site(self, url: str) -> str:
@@ -162,6 +164,8 @@ class AdaptiveWebCrawler(BaseCrawler):
         base_url: str,
         site_name: str,
         user_selectors: list[dict[str, str]] | None = None,
+        source_key: str | None = None,
+        source_type: str = "web",
     ) -> list[dict]:
         """
         从列表页提取所有文章条目，返回 [{"url": "", "title": "", "summary": ""}, ...]
@@ -185,7 +189,12 @@ class AdaptiveWebCrawler(BaseCrawler):
 
         logger.info("[step_2] db_selector | 尝试 DB 中已存储的 selectors")
         schema = self._schema_store.get(site_name)
-        if schema and schema.selectors:
+        should_refresh_stale_selectors = (
+            bool(schema and schema.selectors)
+            and not user_selectors
+            and self._source_outcome_store.should_refresh_selectors(source_key, source_type)
+        )
+        if schema and schema.selectors and not should_refresh_stale_selectors:
             logger.info("[step_2] db_selectors={selectors}", selectors=schema.selectors)
             items = self._dom_extractor.extract_list_items_with_selectors(html, schema.selectors)
             success = items and self._has_valid_data(items)
@@ -194,9 +203,18 @@ class AdaptiveWebCrawler(BaseCrawler):
                 return self._normalize_and_dedupe(items, base_url)
 
         logger.info("[step_3] llm_learning | 尝试 LLM 学习并提取")
-        if self._schema_store.can_use_llm(site_name):
+        can_refresh_stale = (
+            should_refresh_stale_selectors
+            and self._schema_store.can_refresh_stale_selectors(site_name)
+        )
+        if self._schema_store.can_use_llm(site_name) or can_refresh_stale:
             logger.info("[step_3] site={site_name} | can_use_llm=True", site_name=site_name)
-            llm_items = await self._learn_list_item_schema(html, site_name, base_url)
+            llm_items = await self._learn_list_item_schema(
+                html,
+                site_name,
+                base_url,
+                stale_refresh=can_refresh_stale,
+            )
             success = bool(llm_items)
             logger.info("[step_3] result={result} | extracted_count={count}", result="成功" if success else "失败", count=len(llm_items) if llm_items else 0)
             if llm_items:
@@ -210,7 +228,13 @@ class AdaptiveWebCrawler(BaseCrawler):
         logger.info("[step_4] extracted_count={count}", count=len(heuristic_items))
         return heuristic_items
 
-    async def _learn_list_item_schema(self, html: str, site_name: str, base_url: str) -> list[dict]:
+    async def _learn_list_item_schema(
+        self,
+        html: str,
+        site_name: str,
+        base_url: str,
+        stale_refresh: bool = False,
+    ) -> list[dict]:
         """使用 LLM 学习列表页结构并提取文章条目
 
         流程：
@@ -225,23 +249,38 @@ class AdaptiveWebCrawler(BaseCrawler):
 
             if not list_selectors:
                 logger.warning("[_learn_list_item_schema] LLM 未生成有效 selectors")
-                self._schema_store.mark_llm_called(site_name)
+                if stale_refresh:
+                    self._schema_store.mark_stale_refresh_called(site_name)
+                else:
+                    self._schema_store.mark_llm_called(site_name)
                 return []
 
             logger.info("[_learn_list_item_schema] 步骤2: 使用 CSS selectors 提取所有条目")
             items = self._dom_extractor.extract_list_items_with_selectors(html, list_selectors)
             logger.info("[_learn_list_item_schema] CSS 提取完成 | extracted_count={count}", count=len(items))
+            if not self._has_valid_data(items):
+                logger.warning("[_learn_list_item_schema] selectors 提取结果无效，跳过保存")
+                if stale_refresh:
+                    self._schema_store.mark_stale_refresh_called(site_name)
+                else:
+                    self._schema_store.mark_llm_called(site_name)
+                return []
 
             selector = SiteSchema(site_name=site_name, site_url=base_url, selectors=list_selectors, last_llm_call=datetime.now())
             self._schema_store.save(selector)
             logger.info("[_learn_list_item_schema] selectors 已保存 | selectors={selectors}", selectors=list_selectors)
 
-            self._schema_store.mark_llm_called(site_name)
+            if stale_refresh:
+                self._schema_store.mark_stale_refresh_called(site_name)
+            else:
+                self._schema_store.mark_llm_called(site_name)
 
             return items
         except Exception as e:
             logger.error("[_learn_list_item_schema] LLM 学习列表页结构失败 | error={error}", error=e)
             logger.exception(e)
+            if stale_refresh:
+                self._schema_store.mark_stale_refresh_called(site_name)
             return []
 
     async def _extract_list_items_heuristic(self, html: str, base_url: str) -> list[dict]:
@@ -331,7 +370,14 @@ class AdaptiveWebCrawler(BaseCrawler):
         """爬取详情页（始终执行）"""
         return await self._fetch_article_detail(item.url)
 
-    async def _crawl_list_page(self, html: str, url: str, user_selectors: list[dict[str, str]] | None = None) -> list[WebPageItem]:
+    async def _crawl_list_page(
+        self,
+        html: str,
+        url: str,
+        user_selectors: list[dict[str, str]] | None = None,
+        source_key: str | None = None,
+        source_type: str = "web",
+    ) -> list[WebPageItem]:
         """
         爬取列表页，提取所有文章条目
         核心原则：只有 summary 缺失或太短时才爬详情页
@@ -341,7 +387,14 @@ class AdaptiveWebCrawler(BaseCrawler):
 
         logger.info("[crawl_list_page] 开始爬取 | url={url} | html_size={size}", url=url, size=raw_html_size)
 
-        items = await self._extract_list_items(html, url, site_name, user_selectors)
+        items = await self._extract_list_items(
+            html,
+            url,
+            site_name,
+            user_selectors,
+            source_key=source_key,
+            source_type=source_type,
+        )
         logger.info("[crawl_list_page] 提取到 {count} 个列表条目", count=len(items))
 
         # 阈值过滤
@@ -414,7 +467,13 @@ class AdaptiveWebCrawler(BaseCrawler):
             metadata={"site_name": site_name},
         )
 
-    async def fetch_page(self, url: str, user_selectors: list[dict[str, str]] | None = None) -> list[WebPageItem]:
+    async def fetch_page(
+        self,
+        url: str,
+        user_selectors: list[dict[str, str]] | None = None,
+        source_key: str | None = None,
+        source_type: str = "web",
+    ) -> list[WebPageItem]:
         """
         从单个页面抓取内容（不含去重和持久化，由 ContentManager 处理）。
 
@@ -433,10 +492,21 @@ class AdaptiveWebCrawler(BaseCrawler):
         # 检测页面类型
         if self._is_list_page(html):
             logger.info(f"检测到列表页: {url}")
-            return await self._crawl_list_page(html, url, user_selectors)
+            return await self._crawl_list_page(
+                html,
+                url,
+                user_selectors,
+                source_key=source_key,
+                source_type=source_type,
+            )
         else:
             return await self._crawl_detail_page(html, url)
 
     async def fetch(self, source_config: dict, user_selectors: list[dict[str, str]] | None = None) -> list[WebPageItem]:
         """兼容接口，内部委托给 fetch_page"""
-        return await self.fetch_page(source_config["url"], user_selectors)
+        return await self.fetch_page(
+            source_config["url"],
+            user_selectors,
+            source_key=source_config.get("name") or source_config["url"],
+            source_type=source_config.get("type", "web"),
+        )

@@ -52,4 +52,21 @@ class SiteSchemaModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     last_llm_call: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_stale_refresh_call: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    stale_refresh_count: Mapped[int] = mapped_column(Integer, default=0)
     list_selectors: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class SourceCrawlOutcomeModel(Base):
+    """Per-source crawl outcome used for selector health decisions."""
+
+    __tablename__ = "source_crawl_outcomes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_key: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    source_type: Mapped[str] = mapped_column(String, nullable=False)
+    site_name: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    source_url: Mapped[str] = mapped_column(String, nullable=False)
+    new_item_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    crawled_at: Mapped[datetime] = mapped_column(DateTime, index=True, nullable=False)

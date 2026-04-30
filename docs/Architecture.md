@@ -51,9 +51,15 @@ Routing after deduplication uses `new_items`, not `raw_items`, so historical ite
 
 Selectors are normalized once at the orchestration boundary. A single selector mapping is accepted for backward compatibility, and a list of selector mappings is the preferred form.
 
+`ContentManager` also records one source crawl outcome per configured source. Web and JavaScript sources use that history as a selector health signal: when a source has multiple successful crawl days with zero new items, `AdaptiveWebCrawler` can bypass cached DB selectors and allow one stale-selector LLM refresh subject to a separate cooldown. User-provided selectors are still tried first and are not overwritten automatically.
+
 ## Persistence
 
 `CrawlTracker` stores article metadata in SQLite via `ArticleRepository`. Tags are persisted inside `extra_metadata["tags"]` on both insert and update. RSS feed URLs are stored as metadata so `get_last_crawl_time(source, feed_url)` can be feed-specific.
+
+`SourceOutcomeStore` stores per-source crawl outcomes in SQLite. The outcome table records source key, type, site, URL, new item count, error, and crawl time so zero-result days can be distinguished from fetch errors.
+
+`SchemaStore` stores cached CSS selectors and LLM call timestamps. It also tracks stale selector refresh attempts separately from normal selector learning, preserving the regular 24-hour LLM rate limit while allowing guarded recovery from stale cached selectors.
 
 `VectorStore.add()` is idempotent: it uses Chroma `upsert()` when available, otherwise it deletes existing ids before adding documents.
 
