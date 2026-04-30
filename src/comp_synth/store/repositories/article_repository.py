@@ -17,6 +17,7 @@ class ArticleRepository:
 
     def _to_model(self, item: ContentItem) -> ArticleModel:
         """Convert ContentItem Pydantic model to ArticleModel ORM object."""
+        metadata = {**item.metadata, "tags": item.tags}
         return ArticleModel(
             article_id=item.id,
             vector_id=item.id,
@@ -27,12 +28,14 @@ class ArticleRepository:
             title=item.title,
             url=item.url,
             source=item.source,
-            extra_metadata=item.metadata,
+            extra_metadata=metadata,
             liked=0,
         )
 
     def _to_domain(self, row: ArticleModel) -> ContentItem:
         """Convert ArticleModel ORM object to ContentItem Pydantic model."""
+        metadata = dict(row.extra_metadata) if row.extra_metadata else {}
+        tags = metadata.pop("tags", ["其他"])
         return ContentItem(
             id=row.article_id,
             source=row.source,
@@ -40,9 +43,10 @@ class ArticleRepository:
             title=row.title,
             summary=row.summary,
             content=row.content,
+            tags=tags,
             published_at=row.published_at,
             collected_at=row.crawled_at,
-            metadata=row.extra_metadata,
+            metadata=metadata,
         )
 
     def save(self, item: ContentItem) -> None:

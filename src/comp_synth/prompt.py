@@ -11,32 +11,37 @@ DOM_PROMPTS = {
 - summary: 文章摘要的选择器（通常是 p.summary, .excerpt, .description 等）
 - publish_date: 文章发布的时间
 
-请直接返回 JSON 格式：
+请直接返回 JSON 格式（数组）：
 [
-{
-    "item_container": "CSS selector for item container",
-    "url": "CSS selector for article link",
-    "title": "CSS selector for article title",
-    "summary": "CSS selector for article summary",
-    "publish_date": "CSS selector for article summary"
-},
-{
-    "item_container": "CSS selector for item container",
-    "url": "CSS selector for article link",
-    "title": "CSS selector for article title",
-    "summary": "CSS selector for article summary",
-    "publish_date": "CSS selector for article summary"
-}
+  {
+    "item_container": "...",
+    "url": "...",
+    "title": "...",
+    "summary": "...",
+    "time": "..."
+  }
 ]
 
 规则：
 - 提出文章容器前, 一定要判断是否为常见信息源(博客文章,最新动态,最新研究等)
-- 网页可能含有多个文章容器, 不能漏捕, 容器间不能有嵌套关系
 - item_container 应该选中列表中的每一个文章条目
 - url 应该是容器内的链接选择器
-- title , summary 和 publish_date 是容器内相应元素的选择器
-- 使用简洁高效的 CSS 选择器
-- 优先使用 class 和 id
+- title , summary 和 time 是容器内相应元素的选择器
+- 使用简洁高效的 CSS 选择器，优先使用 class 和 id
+
+⚠️ 关键：每种结构的容器只生成一组 selector，不要对同一容器生成多个变体。
+- ❌ 错误：一个 div.post-content.article-list 容器生成了 3 组 selector（.article-list、div、.post-content）
+- ✅ 正确：一个容器只生成 1 组最精准的 selector（如 div.post-content）
+- 仅当页面中存在结构不同的多个独立列表区域时（如"最新文章"和"推荐阅读"），才生成多组 selector
+
+⚠️ 严重警告：所有字段的值必须是合法的 CSS 选择器表达式，严禁填写以下内容：
+- ❌ 空字符串 ""
+- ❌ 日期文本如 "2026年04月27日"、"2026-04-27"、"April 27, 2026"
+- ❌ 普通文本如 "文章标题"、"链接"、"摘要"
+- ❌ URL 如 "https://example.com"
+- ✅ 合法示例：".post-title"、"h2 a"、"div.meta span.date"、"time[datetime]"
+
+如果某个字段在 HTML 中找不到对应的 CSS 选择器，请填空字符串 ""。
 """,
 
 "LIST_ITEM_EXTRACT": """你是一个专业的网页内容提取专家。你的任务是从列表页 HTML 中提取所有文章条目信息。
@@ -70,6 +75,14 @@ DOM_PROMPTS = {
 - 返回的 HTML 片段应该包含 1-3 个完整的文章条目，以便分析其内部结构
 - 使用简洁的 CSS selector 标识容器类型
 
+⚠️ 关键：每种结构的容器只识别一次，不要对同一容器返回多个变体。
+- ❌ 错误：一个 div.post-content.article-list 容器返回了 3 个片段（分别用 .article-list、div、.post-content）
+- ✅ 正确：一个容器只返回 1 个片段（用最精准的 selector 如 div.post-content）
+
+⚠️ container_selector 必须是合法的 CSS 选择器表达式：
+- ❌ 禁止填写日期文本、普通文本、URL
+- ✅ 合法示例："section.article-list"、".post-list"、"div.items"
+
 请返回 JSON 格式：
 {
     "data": [
@@ -94,14 +107,37 @@ DOM_PROMPTS = {
 - url 应该是容器内的链接选择器
 - title, summary 是容器内相应元素的选择器
 - 使用简洁高效的 CSS 选择器，优先使用 class 和 id
+- 只生成一组 selector 即可，不要生成多个变体
+
+⚠️ 关键：该片段对应一个容器，只返回一组 selector，不要返回多个。
+- ❌ 错误：返回了 [{"item_container":"div.post",...}, {"item_container":".post",...}, {"item_container":"div",...}]
+- ✅ 正确：只返回 [{"item_container":"div.post",...}]
+
+⚠️ 严重警告：所有字段的值必须是合法的 CSS 选择器表达式，严禁填写以下内容：
+- ❌ 空字符串 ""
+- ❌ 日期文本如 "2026年04月27日"、"2026-04-27"、"April 27, 2026"
+- ❌ 普通文本如 "文章标题"、"链接"、"摘要"
+- ❌ URL 如 "https://example.com"
+- ✅ 合法示例：".post-title"、"h2 a"、"div.meta span.date"、"time[datetime]"
+
+如果某个字段在 HTML 中找不到对应的 CSS 选择器，请填空字符串 ""。
 """,
 }
 
 # Article Summary Prompt (used in ContentManager for per-article summarization)
-ARTICLE_SUMMARY_PROMPT = """请用2-3句话总结以下文章的核心内容。要求：
-1. 保留关键信息（主要观点、数据、结论）
-2. 总字数控制在200字以内
-3. 直接输出总结内容，不要加前缀或标题"""
+ARTICLE_SUMMARY_PROMPT = """请分析以下文章，完成两个任务：
+1. 用2-3句话总结核心内容（保留关键信息，总字数控制在200字以内）
+2. 从以下标签中选择1-3个最合适的分类标签：技术博客、比赛信息、就业招聘、技术发布、其他
+
+标签说明：
+- 技术博客：技术文章、教程、经验分享、原理分析
+- 比赛信息：编程竞赛、CTF、Hackathon、算法比赛等
+- 就业招聘：招聘信息、求职、面试经验、实习岗位
+- 技术发布：产品发布、版本更新、技术公告、新功能上线
+- 其他：不属于以上类别的文章
+
+请直接返回 JSON 格式，不要 markdown 代码块：
+{"summary": "总结内容...", "tags": ["标签1", "标签2"]}"""
 
 # Content Analyst Prompt (used in nodes.py summarize)
 CONTENT_ANALYST_PROMPT = """你是一个内容分析师。你将收到一组文章。

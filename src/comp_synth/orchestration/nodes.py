@@ -12,6 +12,7 @@ from comp_synth.orchestration.content_manager import ContentManager
 from comp_synth.orchestration.state import PipelineState
 from comp_synth.prompt import CONTENT_ANALYST_PROMPT, REPORT_GENERATOR_PROMPT
 from comp_synth.report_format_checker import ReportFormatChecker
+from comp_synth.schema.content_item import ContentItem
 
 
 async def fetch_sources(state: PipelineState) -> dict:
@@ -65,11 +66,13 @@ async def summarize(state: PipelineState) -> dict:
     # 构建文章列表
     articles_text = ""
     for i, item in enumerate(new_items, 1):
+        tags_str = ", ".join(item.tags)
         articles_text += f"""
 ---
 文章 {i}:
 标题: {item.title}
 URL: {item.url}
+标签: {tags_str}
 摘要: {item.summary}
 ---
 """
@@ -78,6 +81,9 @@ URL: {item.url}
         SystemMessage(content=CONTENT_ANALYST_PROMPT),
         HumanMessage(content=f"以下是 {len(new_items)} 篇文章，请分析：\n{articles_text}"),
     ])
+
+    # 构建文章索引映射 (URL -> ContentItem)
+    item_map = {item.url: item for item in new_items}
 
     try:
         content = response.content
@@ -92,7 +98,12 @@ URL: {item.url}
                 "topic": t["topic"],
                 "summary": t["summary"],
                 "articles": [
-                    {"title": a["title"], "summary": a["summary"], "url": a["url"]}
+                    {
+                        "title": a["title"],
+                        "summary": a["summary"],
+                        "url": a["url"],
+                        "tags": item_map.get(a["url"], ContentItem(source="", url="")).tags,
+                    }
                     for a in t["articles"]
                 ],
                 "related_historical": [],
@@ -106,7 +117,7 @@ URL: {item.url}
             "topic": "综合",
             "summary": "最近采集的文章汇总。",
             "articles": [
-                {"title": item.title, "summary": item.summary or "", "url": item.url}
+                {"title": item.title, "summary": item.summary or "", "url": item.url, "tags": item.tags}
                 for item in new_items
             ],
             "related_historical": [],
@@ -147,7 +158,8 @@ async def publish(state: PipelineState) -> dict:
         groups_text += f"#### 主题概要: {group['summary']}\n\n"
         groups_text += "#### 文章列表:\n"
         for art in group["articles"]:
-            groups_text += f"- title: {art['title']}\n  url: {art['url']}\n  summary: {art.get('summary', '')}\n"
+            tags_str = ", ".join(art.get("tags", ["其他"]))
+            groups_text += f"- title: {art['title']}\n  url: {art['url']}\n  tags: {tags_str}\n  summary: {art.get('summary', '')}\n"
 
         if group.get("related_historical"):
             groups_text += "\n#### 相关历史内容:\n"
