@@ -24,6 +24,8 @@ class SiteSchemaRepository:
             created_at=schema.created_at,
             updated_at=schema.updated_at,
             last_llm_call=schema.last_llm_call,
+            last_stale_refresh_call=schema.last_stale_refresh_call,
+            stale_refresh_count=schema.stale_refresh_count,
             list_selectors={},
         )
 
@@ -36,6 +38,8 @@ class SiteSchemaRepository:
             created_at=row.created_at,
             updated_at=row.updated_at,
             last_llm_call=row.last_llm_call,
+            last_stale_refresh_call=row.last_stale_refresh_call,
+            stale_refresh_count=row.stale_refresh_count or 0,
         )
 
     def get(self, sname: str) -> SiteSchema | None:
@@ -55,6 +59,8 @@ class SiteSchemaRepository:
             existing.selectors = schema.selectors
             existing.updated_at = now
             existing.last_llm_call = schema.last_llm_call
+            existing.last_stale_refresh_call = schema.last_stale_refresh_call
+            existing.stale_refresh_count = schema.stale_refresh_count
         else:
             model = self._to_model(schema)
             model.created_at = now
@@ -84,3 +90,42 @@ class SiteSchemaRepository:
         if row:
             row.selectors = selectors
             row.updated_at = datetime.now()
+
+    def can_refresh_stale_selectors(
+        self,
+        sname: str,
+        cooldown_hours: int,
+        now: datetime | None = None,
+    ) -> bool:
+        """Check if stale selector refresh can call the LLM for this site."""
+        now = now or datetime.now()
+        stmt = select(SiteSchemaModel).where(SiteSchemaModel.site_name == sname)
+        row = self._session.execute(stmt).scalar_one_or_none()
+        if row is None or row.last_stale_refresh_call is None:
+            return True
+        return (now - row.last_stale_refresh_call) > timedelta(hours=cooldown_hours)
+
+    def mark_stale_refresh_called(self, sname: str, now: datetime | None = None) -> None:
+        """Mark that a stale-selector LLM refresh was attempted."""
+        now = now or datetime.now()
+        stmt = select(SiteSchemaModel).where(SiteSchemaModel.site_name == sname)
+        row = self._session.execute(stmt).scalar_one_or_none()
+        if row:
+            row.last_stale_refresh_call = now
+            row.stale_refresh_count = (row.stale_refresh_count or 0) + 1
+            row.updated_at = now
+            return
+
+        self._session.add(
+            SiteSchemaModel(
+                site_name=sname,
+                site_url="",
+                selectors=[],
+                created_at=now,
+                updated_at=now,
+                last_llm_call=None,
+                last_stale_refresh_call=now,
+                stale_refresh_count=1,
+                list_selectors={},
+            )
+        )

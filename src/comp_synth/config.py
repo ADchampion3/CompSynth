@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     rss_lookback_days: int = 7
     list_page_time_threshold_days: int = 7
     list_page_count_threshold: int = 20
+    selector_zero_refresh_enabled: bool = True
+    selector_zero_refresh_days: int = 3
+    selector_zero_refresh_lookback_days: int = 7
+    selector_zero_refresh_cooldown_hours: int = 24
 
     # 订阅与输出
     subscriptions_path: Path = Path("./subscriptions.yaml")

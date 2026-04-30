@@ -40,7 +40,11 @@ class DynamicWebCrawler(BaseCrawler):
         self._delegate = AdaptiveWebCrawler()
 
     async def fetch_page(
-        self, url: str, user_selectors: list[dict[str, str]] | None = None
+        self,
+        url: str,
+        user_selectors: list[dict[str, str]] | None = None,
+        source_key: str | None = None,
+        source_type: str = "javascript",
     ) -> list[WebPageItem]:
         """
         从单个页面抓取内容（支持 JavaScript 渲染）。
@@ -63,7 +67,13 @@ class DynamicWebCrawler(BaseCrawler):
 
         # 检测页面类型，委托给 AdaptiveWebCrawler
         if self._delegate._is_list_page(html):
-            return await self._delegate._crawl_list_page(html, url, user_selectors)
+            return await self._delegate._crawl_list_page(
+                html,
+                url,
+                user_selectors,
+                source_key=source_key,
+                source_type=source_type,
+            )
         else:
             return await self._delegate._crawl_detail_page(html, url)
 
@@ -91,7 +101,13 @@ class DynamicWebCrawler(BaseCrawler):
 
         # 检测页面类型，委托给 AdaptiveWebCrawler
         if self._delegate._is_list_page(html):
-            return await self._delegate._crawl_list_page(html, url, user_selectors)
+            return await self._delegate._crawl_list_page(
+                html,
+                url,
+                user_selectors,
+                source_key=source_config.get("name") or url,
+                source_type=source_config.get("type", "javascript"),
+            )
         else:
             return await self._delegate._crawl_detail_page(html, url)
 
