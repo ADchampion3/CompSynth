@@ -1,67 +1,66 @@
+from typing import Any
+
 from langchain_core.language_models import BaseChatModel
 
 from comp_synth.config import settings
 
 
-class LLMRegistry:
-    """LLM 注册表，管理多个 LLM provider 实例"""
+class LLMConfigurationError(RuntimeError):
+    """Raised when an LLM provider is requested but not configured."""
 
-    def __init__(self, config: dict):
+
+class LLMRegistry:
+    """Registry for configured LangChain chat model providers."""
+
+    def __init__(self, config: dict[str, Any]):
         self._providers: dict[str, BaseChatModel] = {}
         self._init_llm(config)
 
-    def _init_llm(self, config: dict):
-        if config.get("openai_api_key", "") != "" and config.get("openai_base_url", "") != "" and config.get("model", "") != "":
-            openai_api_key = config["openai_api_key"]
-            openai_base_url = config["openai_base_url"]
-            model_name = config["model"]
-            self._register(model_name, {"type": "openai", "api_key": openai_api_key, "base_url": openai_base_url, "model": model_name})
+    def _init_llm(self, config: dict[str, Any]) -> None:
+        model_name = config.get("model", "")
+        if not model_name:
+            return
 
-        if config.get("anthropic_api_key", "") != "" and config.get("anthropic_base_url", "") != "" and config.get("model",
-                                                                                                             "") != "":
-            anthropic_api_key = config["anthropic_api_key"]
-            anthropic_base_url = config["anthropic_base_url"]
-            model_name = config["model"]
-            self._register(model_name, {"type": "anthropic", "api_key": anthropic_api_key, "base_url": anthropic_base_url,
-                                       "model": model_name})
+        if config.get("openai_api_key") and config.get("openai_base_url"):
+            self._register(
+                model_name,
+                {
+                    "type": "openai",
+                    "api_key": config["openai_api_key"],
+                    "base_url": config["openai_base_url"],
+                    "model": model_name,
+                },
+            )
 
+        if config.get("anthropic_api_key"):
+            self._register(
+                model_name,
+                {
+                    "type": "anthropic",
+                    "api_key": config["anthropic_api_key"],
+                    "base_url": config.get("anthropic_base_url"),
+                    "model": model_name,
+                },
+            )
 
-    def _register(self, name: str, provider_config: dict) -> None:
-        """
-        注册一个 LLM provider
-
-        Args:
-            name: provider 名称标识
-            provider_config: provider 配置，包含 type, model, api_key 等
-        """
+    def _register(self, name: str, provider_config: dict[str, Any]) -> None:
         self._providers[name] = self._create_provider(provider_config)
 
-    def get(self, name: str = None) -> BaseChatModel:
-        """获取已注册的 provider 实例"""
-        if name is None:
-            return self._providers[settings.model]
-        if name not in self._providers:
-            raise KeyError(f"LLM provider '{name}' 未注册")
-        return self._providers[name]
+    def get(self, name: str | None = None) -> BaseChatModel:
+        provider_name = name or settings.model
+        if provider_name not in self._providers:
+            raise LLMConfigurationError(
+                f"LLM provider '{provider_name}' is not configured. Set "
+                "COMPSYNTH_OPENAI_API_KEY for OpenAI-compatible models or "
+                "COMPSYNTH_ANTHROPIC_API_KEY for Anthropic models. "
+                "Set COMPSYNTH_MODEL to the configured model name if needed."
+            )
+        return self._providers[provider_name]
 
     def list_providers(self) -> list[str]:
-        """列出所有已注册的 provider 名称"""
         return list(self._providers.keys())
 
-    def _create_provider(self, config: dict) -> BaseChatModel:
-        """
-        根据配置创建 LLM provider 实例
-
-        Args:
-            config: provider 配置
-                - type: "openai" | "anthropic"
-                - model: 模型名称
-                - api_key: API 密钥
-                - base_url: (可选) 自定义 API 地址
-
-        Returns:
-            BaseChatModel 实例
-        """
+    def _create_provider(self, config: dict[str, Any]) -> BaseChatModel:
         provider_type = config["type"]
 
         if provider_type == "openai":
@@ -72,14 +71,18 @@ class LLMRegistry:
                 api_key=config.get("api_key", ""),
                 base_url=config.get("base_url"),
             )
-        elif provider_type == "anthropic":
+        if provider_type == "anthropic":
             from langchain_anthropic import ChatAnthropic
 
-            return ChatAnthropic(
-                model=config.get("model", "claude-sonnet-4-20250514"),
-                api_key=config.get("api_key", ""),
-            )
-        else:
-            raise ValueError(f"不支持的 provider 类型: {provider_type}")
+            kwargs: dict[str, Any] = {
+                "model": config.get("model", "claude-sonnet-4-20250514"),
+                "api_key": config.get("api_key", ""),
+            }
+            if config.get("base_url"):
+                kwargs["base_url"] = config["base_url"]
+            return ChatAnthropic(**kwargs)
 
-llm_registry = LLMRegistry(settings.dict())
+        raise ValueError(f"Unsupported provider type: {provider_type}")
+
+
+llm_registry = LLMRegistry(settings.model_dump())

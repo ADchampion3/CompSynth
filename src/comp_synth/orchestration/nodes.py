@@ -18,10 +18,25 @@ from comp_synth.schema.content_item import ContentItem
 async def fetch_sources(state: PipelineState) -> dict:
     """从所有订阅源采集内容（委托给 ContentManager）"""
     subs_path = settings.subscriptions_path
+    if not subs_path.exists():
+        return {
+            "sources": [],
+            "raw_items": [],
+            "errors": [
+                f"Missing subscriptions.yaml at {subs_path}. Copy subscriptions.example.yaml to subscriptions.yaml and configure sources."
+            ],
+        }
+
     with open(subs_path, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+        config = yaml.safe_load(f) or {}
 
     sources = config.get("sources", [])
+    if not sources:
+        return {
+            "sources": [],
+            "raw_items": [],
+            "errors": ["No sources configured in subscriptions.yaml"],
+        }
 
     # Create ContentManager and store in state for later use by deduplicate
     manager = ContentManager()
@@ -200,7 +215,23 @@ async def publish(state: PipelineState) -> dict:
         },
     }
 
-def use_last_digest(state: PipelineState) -> None:
-    """使用上一次的摘要"""
-    logger.info("距离上一次没有新内容更新,使用上一次摘要")
-    return
+def use_last_digest(state: PipelineState) -> dict:
+    """Reuse the newest generated digest when there is no new content."""
+    output_dir = Path(settings.output_dir)
+    digest_files = sorted(output_dir.glob("digest_*.md"), key=lambda path: path.stat().st_mtime)
+    if not digest_files:
+        return {
+            "report": "",
+            "publish_results": {"status": "skipped", "reason": "No previous digest found"},
+        }
+
+    latest = digest_files[-1]
+    report = latest.read_text(encoding="utf-8")
+    return {
+        "report": report,
+        "publish_results": {
+            "status": "reused",
+            "path": latest,
+            "reason": "No new content; reused latest digest",
+        },
+    }

@@ -1,21 +1,20 @@
-# CompSynth 订阅源配置
-# 复制此文件为 subscriptions.yaml 并填入实际订阅源
+# Copy this file to subscriptions.yaml and edit the sources.
 
 sources:
   - type: rss
     url: https://example.com/feed.xml
     name: Example Blog
+
   - type: web
     url: https://tech.example.com/
     name: Example Tech
-    selectors:  # 可选：用户自定义 CSS selectors
-      item_container: ".post-container"
-      url: ".post-title a"
-      title: ".post-title"
-      summary: ".post-excerpt"
-      content: ".post-content"
-  # 多 selector 示例：一个网站下有多个文章容器需要分别提取
-  # 每个 selectors 列表项对应一组 CSS 选择器
+    selectors:
+      - item_container: ".post-container"
+        url: ".post-title a"
+        title: ".post-title"
+        summary: ".post-excerpt"
+        content: ".post-content"
+
   - type: web
     url: https://example.com/
     name: Example Multi-Selector
@@ -28,3 +27,8 @@ sources:
         url: "a"
         title: "h3"
         summary: ".summary"
+
+  - type: javascript
+    url: https://app.example.com/
+    name: Example JavaScript Site
+    javascript: true

@@ -62,7 +62,7 @@ class ArticleRepository:
             existing.title = item.title
             existing.url = item.url
             existing.source = item.source
-            existing.extra_metadata = item.metadata
+            existing.extra_metadata = {**item.metadata, "tags": item.tags}
         else:
             self._session.add(self._to_model(item))
 
@@ -118,9 +118,8 @@ class ArticleRepository:
 
     def get_last_crawl_time(self, source: str, feed_url: str) -> datetime | None:
         """Get the most recent crawl time for a given source and feed URL."""
-        stmt = (
-            select(func.max(ArticleModel.crawled_at))
-            .where(ArticleModel.source == source)
-        )
+        stmt = select(func.max(ArticleModel.crawled_at)).where(ArticleModel.source == source)
+        if feed_url:
+            stmt = stmt.where(ArticleModel.extra_metadata["feed_url"].as_string() == feed_url)
         rows = list(self._session.execute(stmt).scalars().all())
         return rows[0] if rows and rows[0] is not None else None

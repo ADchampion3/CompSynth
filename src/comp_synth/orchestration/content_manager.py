@@ -154,6 +154,16 @@ class FetchResult:
     source_counts: dict[str, int] = field(default_factory=dict)
 
 
+def normalize_selectors(selectors: object) -> list[dict[str, str]] | None:
+    if selectors is None:
+        return None
+    if isinstance(selectors, dict):
+        return [selectors]
+    if isinstance(selectors, list) and all(isinstance(item, dict) for item in selectors):
+        return selectors
+    raise ValueError("selectors must be a mapping or a list of mappings")
+
+
 class ContentManager:
     """
     Orchestrates content fetching from multiple sources.
@@ -382,9 +392,12 @@ class ContentManager:
     ) -> list[ContentItem]:
         """Fetch items from a web source with dedup, detail-fetch, LLM summarization, and persistence."""
         url = source["url"]
-        user_selectors = source.get("selectors")
+        user_selectors = normalize_selectors(source.get("selectors"))
 
-        raw_items = await crawler.fetch_page(url, user_selectors=user_selectors)
+        if isinstance(crawler, DynamicWebCrawler):
+            raw_items = await crawler.fetch(source, user_selectors=user_selectors)
+        else:
+            raw_items = await crawler.fetch_page(url, user_selectors=user_selectors)
         total = len(raw_items)
         logger.info(f"[Web] 获取到 {total} 条原始条目，开始并发处理 (concurrent={self.MAX_CONCURRENT}, delay={self.CRAWL_DELAY}s)")
 
@@ -425,10 +438,23 @@ class ContentManager:
         try:
             if source_type == "rss":
                 items = await self._fetch_rss_source(source, crawler)
-            elif source_type in ("web", "javascript"):
+            elif source_type == "web":
                 items = await self._fetch_web_source(source, crawler)
+            elif source_type == "javascript":
+                user_selectors = normalize_selectors(source.get("selectors"))
+                raw_items = await crawler.fetch(source, user_selectors=user_selectors)
+                total = len(raw_items)
+                semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
+                done_count = [0]
+                results = await asyncio.gather(*[
+                    self._process_item(item, crawler, "javascript", None, semaphore, done_count, total)
+                    for item in raw_items
+                ], return_exceptions=True)
+                items = [item for item in results if not isinstance(item, Exception) and item is not None]
+                if items:
+                    self._tracker.save_articles(items)
             else:
-                items = await crawler.fetch(source, user_selectors=source.get("selectors"))
+                items = await crawler.fetch(source, user_selectors=normalize_selectors(source.get("selectors")))
 
             logger.info(
                 f"[ContentManager] 从 {source_name} 获取到 {len(items)} 条内容"

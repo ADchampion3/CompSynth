@@ -57,7 +57,13 @@ class DOMExtractor:
     """使用 LLM 从 HTML DOM 中提取结构化内容"""
 
     def __init__(self):
-        self._llm = llm_registry.get()
+        self._llm = None
+
+    @property
+    def llm(self):
+        if self._llm is None:
+            self._llm = llm_registry.get()
+        return self._llm
 
     def _preprocess_html(self, html: str) -> str:
         """Stage 0: 清洗 HTML，移除噪声元素和冗余属性"""
@@ -101,7 +107,7 @@ class DOMExtractor:
         html_preview = cleaned_html[:20000] if len(cleaned_html) > 20000 else cleaned_html
 
         try:
-            structured_llm = self._llm.with_structured_output(ContainerFragments)
+            structured_llm = self.llm.with_structured_output(ContainerFragments)
             logger.info("[identify_container_fragments] Stage 1: 识别文章容器片段")
             result: ContainerFragments = await structured_llm.ainvoke([
                 SystemMessage(content=DOM_PROMPTS["CONTAINER_DISCOVERY"]),
@@ -115,7 +121,7 @@ class DOMExtractor:
     async def generate_selectors_from_fragment(self, fragment: ContainerFragment) -> list[dict[str, str]]:
         """Stage 2: 从容器 HTML 片段生成 item_selectors"""
         try:
-            structured_llm = self._llm.with_structured_output(ListItemSelectors)
+            structured_llm = self.llm.with_structured_output(ListItemSelectors)
             logger.info("[generate_selectors_from_fragment] Stage 2: 从容器片段生成 selectors | container={container}", container=fragment.container_selector)
             result: ListItemSelectors = await structured_llm.ainvoke([
                 SystemMessage(content=DOM_PROMPTS["LIST_ITEM_SELECTOR_FROM_FRAGMENT"]),
@@ -172,7 +178,7 @@ class DOMExtractor:
         html_preview = html[:15000]
 
         try:
-            structured_llm = self._llm.with_structured_output(ListItemSelectors)
+            structured_llm = self.llm.with_structured_output(ListItemSelectors)
             logger.info("[_generate_selectors_legacy] 使用原始方案生成 CSS selectors")
             result: ListItemSelectors = await structured_llm.ainvoke([
                 SystemMessage(content=DOM_PROMPTS["LIST_ITEM_SELECTOR"]),
