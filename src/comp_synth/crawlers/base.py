@@ -1,3 +1,4 @@
+import asyncio
 from abc import ABC, abstractmethod
 
 import httpx
@@ -43,15 +44,24 @@ class BaseCrawler(ABC):
         Returns:
             渲染后的完整 HTML
         """
+
         from DrissionPage import ChromiumPage
 
-        page = ChromiumPage()
-        try:
-            page.get(url)
-            page.wait(wait_time)
-            return page.html
-        finally:
-            page.quit()
+        def _sync_fetch():
+            page = ChromiumPage()
+            try:
+                page.get(url)
+                page.wait(wait_time)
+                return page.html
+            finally:
+                page.quit()
+
+        loop = asyncio.get_event_loop()
+        html = await asyncio.wait_for(
+            loop.run_in_executor(None, _sync_fetch),
+            timeout=60,
+        )
+        return html
 
     @abstractmethod
     async def fetch(self, source_config: dict, user_selectors: list[dict[str, str]] | None = None) -> list[ContentItem]:

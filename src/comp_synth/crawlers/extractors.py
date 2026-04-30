@@ -237,20 +237,31 @@ class DOMExtractor:
 
                 # 提取标题
                 title = ""
-                title_elem = container.select_one(title_selector)
-                if title_elem:
-                    title = title_elem.get_text(strip=True)
+                if title_selector:
+                    try:
+                        title_elem = container.select_one(title_selector)
+                    except Exception:
+                        title_elem = None
+                    if title_elem:
+                        title = title_elem.get_text(strip=True)
 
                 # 提取摘要
                 summary = ""
-                summary_elem = container.select_one(summary_selector)
-                if summary_elem:
-                    summary = summary_elem.get_text(strip=True)
+                if summary_selector:
+                    try:
+                        summary_elem = container.select_one(summary_selector)
+                    except Exception:
+                        summary_elem = None
+                    if summary_elem:
+                        summary = summary_elem.get_text(strip=True)
 
                 # 提取时间
                 published_at = None
                 if time_selector:
-                    time_elem = container.select_one(time_selector)
+                    try:
+                        time_elem = container.select_one(time_selector)
+                    except Exception:
+                        time_elem = None
                     if time_elem:
                         # 优先取 datetime 属性
                         dt = time_elem.get("datetime", "")

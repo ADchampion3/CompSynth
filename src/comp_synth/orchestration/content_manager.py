@@ -47,11 +47,14 @@ class RSSSourceStrategy:
         return tracker.get_today_items(self.source_type)
 
     def create_historical_item(self, metadata: dict) -> ContentItem:
+        extra = metadata.get("metadata", {})
+        tags = extra.get("tags", ["其他"])
         return RSSItem(
             source=metadata.get("source", "rss"),
             url=metadata.get("url", ""),
             title=metadata.get("title", ""),
             summary=metadata.get("summary", ""),
+            tags=tags,
             collected_at=datetime.fromisoformat(metadata.get("crawled_at", datetime.now().isoformat())),
             published_at=datetime.fromisoformat(metadata["published_at"])
             if metadata.get("published_at") else None,
@@ -67,11 +70,14 @@ class WebSourceStrategy:
         return tracker.get_today_items(self.source_type)
 
     def create_historical_item(self, metadata: dict) -> ContentItem:
+        extra = metadata.get("metadata", {})
+        tags = extra.get("tags", ["其他"])
         return WebPageItem(
             source=metadata.get("source", "web"),
             url=metadata.get("url", ""),
             title=metadata.get("title", ""),
             summary=metadata.get("summary", ""),
+            tags=tags,
             collected_at=datetime.fromisoformat(metadata.get("crawled_at", datetime.now().isoformat())),
         )
 
@@ -167,6 +173,10 @@ class ContentManager:
         "javascript": DynamicWebCrawler,
     }
 
+    ITEM_TIMEOUT = 120  # 单条处理总超时（秒）
+    MAX_CONCURRENT = 5  # 最大并发数
+    CRAWL_DELAY = 1.5  # 同一站点的详情页请求间隔（秒）
+
     def __init__(
         self,
         crawl_tracker: CrawlTracker | None = None,
@@ -189,6 +199,21 @@ class ContentManager:
         self._vector_store = vector_store or VectorStore()
         self._crawlers: dict[str, BaseCrawler] = {}
         self._strategy_factory = strategy_factory or SourceStrategyFactory.create_default_factory()
+        self._last_crawl_time: float = 0.0
+        self._crawl_lock = asyncio.Lock()
+
+    async def _throttled_fetch_detail(
+        self, item: ContentItem, crawler: BaseCrawler, source_type: str, site_name: str,
+    ) -> ContentItem | None:
+        """带请求间隔的详情页抓取。确保请求之间至少间隔 CRAWL_DELAY 秒。"""
+        async with self._crawl_lock:
+            now = asyncio.get_event_loop().time()
+            elapsed = now - self._last_crawl_time
+            if elapsed < self.CRAWL_DELAY:
+                await asyncio.sleep(self.CRAWL_DELAY - elapsed)
+            self._last_crawl_time = asyncio.get_event_loop().time()
+
+        return await crawler.fetch_detail(item, site_name)
 
     def _get_crawler(self, source_type: str) -> BaseCrawler | None:
         """Get or create a crawler instance for the given source type."""
@@ -204,13 +229,16 @@ class ContentManager:
         """Detect site name from URL."""
         return urlparse(url).netloc or "unknown"
 
-    async def _summarize_content(self, title: str, content: str) -> str:
-        """用 LLM 从 readability 提取的 content 生成 summary"""
+    async def _summarize_content(self, title: str, content: str) -> tuple[str, list[str]]:
+        """用 LLM 从 readability 提取的 content 生成 summary 和 tags"""
+        import json
+
         from langchain_core.messages import HumanMessage, SystemMessage
 
         from comp_synth.config import settings
         from comp_synth.llm_provider.registry import llm_registry
         from comp_synth.prompt import ARTICLE_SUMMARY_PROMPT
+        from comp_synth.schema.content_item import ALL_TAGS
 
         truncated = content[:3000] if len(content) > 3000 else content
         llm = llm_registry.get(settings.model)
@@ -218,7 +246,103 @@ class ContentManager:
             SystemMessage(content=ARTICLE_SUMMARY_PROMPT),
             HumanMessage(content=f"标题：{title}\n\n内容：{truncated}"),
         ])
-        return response.content.strip()
+        text = response.content.strip()
+        try:
+            if "```" in text:
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+            result = json.loads(text)
+            summary = result.get("summary", "").strip()
+            raw_tags = result.get("tags", [])
+            tags = [t for t in raw_tags if t in ALL_TAGS] or ["其他"]
+            return summary, tags
+        except (json.JSONDecodeError, KeyError):
+            return text, ["其他"]
+
+    async def _process_item(
+        self,
+        item: ContentItem,
+        crawler: BaseCrawler,
+        source_type: str,
+        extra_metadata: dict | None,
+        semaphore: asyncio.Semaphore,
+        done_count: list[int],
+        total: int,
+    ) -> ContentItem | None:
+        """处理单条内容：去重、抓详情、LLM 摘要。受信号量控制并发，带总超时兜底。"""
+        async with semaphore:
+            if self._tracker.is_crawled(source_type, item.url):
+                done_count[0] += 1
+                logger.info(f"[{source_type} {done_count[0]}/{total}] 已爬取, 跳过: {item.url}")
+                return None
+
+            done_count[0] += 1
+            my_index = done_count[0]
+            logger.info(f"[{source_type} {my_index}/{total}] 开始处理: {item.url}")
+
+            result = item
+            try:
+                result = await asyncio.wait_for(
+                    self._do_process_item(item, crawler, source_type, extra_metadata),
+                    timeout=self.ITEM_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"[{source_type} {my_index}/{total}] 处理超时 ({self.ITEM_TIMEOUT}s): {item.url}")
+            finally:
+                logger.info(f"[{source_type} {my_index}/{total}] 完成: {item.title[:30]}")
+            return result
+
+    async def _do_process_item(
+        self,
+        item: ContentItem,
+        crawler: BaseCrawler,
+        source_type: str,
+        extra_metadata: dict | None,
+    ) -> ContentItem:
+        """单条内容的核心处理逻辑（fetch_detail + summarize）。"""
+        try:
+            detail = await self._throttled_fetch_detail(item, crawler, source_type, self._detect_site(item.url))
+            if detail is not None:
+                if source_type == "rss" and isinstance(detail, RSSItem):
+                    item = detail
+                elif source_type != "rss":
+                    item = detail
+        except Exception as e:
+            logger.error(f"[{source_type}] 详情页抓取失败 {item.url}: {e}")
+            return item
+
+        if item.content:
+            try:
+                summary, tags = await self._summarize_content(item.title, item.content)
+                if summary:
+                    if source_type == "rss":
+                        item = RSSItem(
+                            url=item.url,
+                            title=item.title,
+                            summary=summary,
+                            content=item.content,
+                            tags=tags,
+                            published_at=item.published_at,
+                            collected_at=item.collected_at,
+                            metadata=item.metadata,
+                        )
+                    else:
+                        item = WebPageItem(
+                            url=item.url,
+                            title=item.title,
+                            summary=summary,
+                            content=item.content,
+                            tags=tags,
+                            collected_at=item.collected_at,
+                            metadata=item.metadata,
+                        )
+            except Exception as e:
+                logger.warning(f"[{source_type}] LLM 总结失败 {item.url}: {e}")
+
+        if extra_metadata:
+            item.metadata.update(extra_metadata)
+        return item
 
     async def _fetch_rss_source(
         self,
@@ -228,46 +352,27 @@ class ContentManager:
         """Fetch items from an RSS source with dedup, detail-fetch, LLM summarization, and persistence."""
         feed_url = source["url"]
         raw_items = await crawler.fetch_feed(source)
+        total = len(raw_items)
+        logger.info(f"[RSS] 获取到 {total} 条原始条目，开始并发处理 (concurrent={self.MAX_CONCURRENT}, delay={self.CRAWL_DELAY}s)")
 
-        processed: list[ContentItem] = []
-        for item in raw_items:
-            # Deduplication check
-            if self._tracker.is_crawled("rss", item.url):
-                logger.info(f"[ContentManager] RSS: {item.url} 已爬取, 跳过")
-                continue
+        semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
+        done_count = [0]
+        tasks = [
+            self._process_item(item, crawler, "rss", {"feed_url": feed_url}, semaphore, done_count, total)
+            for item in raw_items
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            site_name = self._detect_site(item.url)
+        processed = []
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.error(f"[RSS] 条目处理异常 {raw_items[i].url}: {r}")
+            elif r is not None:
+                processed.append(r)
 
-            # Always fetch detail page
-            detail = await crawler.fetch_detail(item, site_name)
-            if isinstance(detail, RSSItem):
-                item = detail
-
-            # LLM summarization from extracted content
-            if item.content:
-                try:
-                    summary = await self._summarize_content(item.title, item.content)
-                    if summary:
-                        item = RSSItem(
-                            url=item.url,
-                            title=item.title,
-                            summary=summary,
-                            content=item.content,
-                            published_at=item.published_at,
-                            collected_at=item.collected_at,
-                            metadata=item.metadata,
-                        )
-                except Exception as e:
-                    logger.warning(f"LLM 总结失败 {item.url}: {e}, 使用 readability summary")
-
-            processed.append(item)
-
-        # Persist all processed items
         if processed:
-            for item in processed:
-                item.metadata["feed_url"] = feed_url
             self._tracker.save_articles(processed)
-
+        logger.info(f"[RSS] 处理完成: {len(processed)}/{total} 条有效内容")
         return processed
 
     async def _fetch_web_source(
@@ -280,43 +385,27 @@ class ContentManager:
         user_selectors = source.get("selectors")
 
         raw_items = await crawler.fetch_page(url, user_selectors=user_selectors)
+        total = len(raw_items)
+        logger.info(f"[Web] 获取到 {total} 条原始条目，开始并发处理 (concurrent={self.MAX_CONCURRENT}, delay={self.CRAWL_DELAY}s)")
 
-        processed: list[ContentItem] = []
-        for item in raw_items:
-            # Deduplication check
-            if self._tracker.is_crawled("web", item.url):
-                logger.info(f"[ContentManager] Web: {item.url} 已爬取, 跳过")
-                continue
+        semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
+        done_count = [0]
+        tasks = [
+            self._process_item(item, crawler, "web", None, semaphore, done_count, total)
+            for item in raw_items
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            site_name = self._detect_site(item.url)
+        processed = []
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.error(f"[Web] 条目处理异常 {raw_items[i].url}: {r}")
+            elif r is not None:
+                processed.append(r)
 
-            # Always fetch detail page
-            enriched = await crawler.fetch_detail(item, site_name)
-            if enriched is not None:
-                item = enriched
-
-            # LLM summarization from extracted content
-            if item.content:
-                try:
-                    summary = await self._summarize_content(item.title, item.content)
-                    if summary:
-                        item = WebPageItem(
-                            url=item.url,
-                            title=item.title,
-                            summary=summary,
-                            content=item.content,
-                            collected_at=item.collected_at,
-                            metadata=item.metadata,
-                        )
-                except Exception as e:
-                    logger.warning(f"LLM 总结失败 {item.url}: {e}, 使用 readability summary")
-
-            processed.append(item)
-
-        # Persist all processed items
         if processed:
             self._tracker.save_articles(processed)
-
+        logger.info(f"[Web] 处理完成: {len(processed)}/{total} 条有效内容")
         return processed
 
     async def _fetch_single_source(
