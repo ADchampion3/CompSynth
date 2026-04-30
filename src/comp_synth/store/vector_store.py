@@ -22,10 +22,14 @@ class VectorStore:
         if not items:
             return
 
-        self._collection.add(
-            ids=[item.id for item in items],
-            documents=[f"{item.title}:{item.summary}:{item.content}" for item in items],
-        )
+        ids = [item.id for item in items]
+        documents = [f"{item.title}:{item.summary}:{item.content}" for item in items]
+        if hasattr(self._collection, "upsert"):
+            self._collection.upsert(ids=ids, documents=documents)
+            return
+
+        self._collection.delete(ids=ids)
+        self._collection.add(ids=ids, documents=documents)
 
     def search(self, query: str, k: int = 5) -> list[dict]:
         """语义搜索相关内容（metadata为空，元数据需从SQLite查询）"""

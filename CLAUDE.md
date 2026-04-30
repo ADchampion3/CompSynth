@@ -13,22 +13,22 @@ CompSynth is a content aggregation and publishing system (内容聚合与发布�
 uv sync
 
 # Run the application
-compsynth
+uv run compsynth
 
 # Run tests
-pytest
+uv run python -m pytest -q
 
 # Run a single test file
-pytest tests/test_crawler.py
+uv run python -m pytest tests/test_crawler.py
 
-# Run tests with verbose output
-pytest -v
+# Compile-check source and tests
+uv run python -m compileall -q src tests
 ```
 
 ## Architecture
 
 ```
-Input Sources (RSS, Web, Arxiv)
+Input Sources (RSS, Web, JavaScript Web)
     ↓
 crawlers/ — fetches and extracts structured ContentItem
     ↓
@@ -63,7 +63,7 @@ Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.p
 
 ### Entry Point
 
-`src/comp_synth/main.py` — async `run()` builds the LangGraph pipeline and invokes it with initial state.
+`src/comp_synth/main.py` exposes the `compsynth` console script. Its async `run()` builds the LangGraph pipeline and invokes it with initial state.
 
 ### Data Flow
 

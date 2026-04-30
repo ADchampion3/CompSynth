@@ -200,6 +200,9 @@ class AdaptiveWebCrawler(BaseCrawler):
             success = bool(llm_items)
             logger.info("[step_3] result={result} | extracted_count={count}", result="成功" if success else "失败", count=len(llm_items) if llm_items else 0)
             if llm_items:
+                heuristic_items = await self._extract_list_items_heuristic(html, base_url)
+                if len(heuristic_items) > len(llm_items):
+                    return self._normalize_and_dedupe(heuristic_items, base_url)
                 return self._normalize_and_dedupe(llm_items, base_url)
 
         logger.info("[step_4] heuristic | 尝试启发式方法提取")
