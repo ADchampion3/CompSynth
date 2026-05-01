@@ -36,7 +36,7 @@ schema/ — Pydantic models (ContentItem, RSSItem, WebPageItem)
     ↓
 store/ — VectorStore (ChromaDB) + CrawlTracker (SQLite) + SchemaStore (SQLite) for dedup & persistence
     ↓
-orchestration/ — LangGraph pipeline: fetch → dedup → summarize → enrich → publish
+orchestration/ — Plain async pipeline: fetch → dedup → summarize → enrich → publish
     ↓
 llm_provider/ — LLMRegistry supporting OpenAI-compatible and Anthropic providers
     ↓
@@ -52,7 +52,7 @@ publishers/ — publishes aggregated reports to target platforms
 | `store/vector_store.py` | ChromaDB-backed vector storage with TTL cleanup |
 | `store/crawl_tracker.py` | SQLite-backed crawl tracking and deduplication |
 | `store/schema_store.py` | SQLite-backed site schema storage for CSS selectors |
-| `orchestration/graph.py` | LangGraph pipeline builder |
+| `orchestration/pipeline.py` | Plain async pipeline runner and routing |
 | `orchestration/nodes.py` | Pipeline nodes: fetch, dedup, summarize, enrich, publish |
 | `llm_provider/registry.py` | LLM provider registry via LangChain |
 | `prompt.py` | LLM prompts for analysis and report generation |
@@ -63,7 +63,7 @@ Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.p
 
 ### Entry Point
 
-`src/comp_synth/main.py` exposes the `compsynth` console script. Its async `run()` builds the LangGraph pipeline and invokes it with initial state.
+`src/comp_synth/main.py` exposes the `compsynth` console script. Its async `run()` invokes the plain async pipeline.
 
 ### Data Flow
 

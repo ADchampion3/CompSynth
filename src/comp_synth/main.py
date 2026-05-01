@@ -3,23 +3,12 @@ import asyncio
 
 
 async def run() -> dict:
-    from comp_synth.orchestration.graph import build_pipeline
+    from comp_synth.orchestration.pipeline import run_pipeline
     from comp_synth.utils.logging import logger
 
     logger.info("CompSynth starting")
 
-    pipeline = build_pipeline()
-    result = await pipeline.ainvoke(
-        {
-            "sources": [],
-            "raw_items": [],
-            "new_items": [],
-            "topic_groups": [],
-            "report": "",
-            "publish_results": {},
-            "errors": [],
-        }
-    )
+    result = await run_pipeline()
 
     if result.get("errors"):
         for err in result["errors"]:

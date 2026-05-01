@@ -1,8 +1,9 @@
 import asyncio
 from pathlib import Path
 
-from comp_synth.orchestration.graph import route_after_deduplicate
+from comp_synth.orchestration import pipeline as pipeline_module
 from comp_synth.orchestration.nodes import fetch_sources, use_last_digest
+from comp_synth.orchestration.pipeline import route_after_deduplicate, run_pipeline
 from comp_synth.schema.content_item import ContentItem
 
 
@@ -10,6 +11,110 @@ def test_route_after_deduplicate_uses_new_items_not_raw_items():
     state = {"raw_items": [], "new_items": [ContentItem(source="web", url="https://x.test")]}
 
     assert route_after_deduplicate(state, has_last_digest=lambda: False) == "summarize"
+
+
+def test_run_pipeline_summarizes_enriches_and_publishes_new_items(monkeypatch):
+    calls = []
+    item = ContentItem(source="web", url="https://x.test")
+
+    async def fetch(state):
+        calls.append("fetch_sources")
+        return {"raw_items": [item]}
+
+    async def dedup(state):
+        calls.append("deduplicate")
+        assert state["raw_items"] == [item]
+        return {"new_items": [item]}
+
+    async def summarize_node(state):
+        calls.append("summarize")
+        assert state["new_items"] == [item]
+        return {"topic_groups": [{"topic": "T", "summary": "S", "articles": [], "related_historical": []}]}
+
+    async def enrich_node(state):
+        calls.append("enrich")
+        assert state["topic_groups"][0]["topic"] == "T"
+        return {"report": "digest"}
+
+    async def publish_node(state):
+        calls.append("publish")
+        assert state["report"] == "digest"
+        return {"publish_results": {"status": "success"}}
+
+    monkeypatch.setattr(pipeline_module, "fetch_sources", fetch)
+    monkeypatch.setattr(pipeline_module, "deduplicate", dedup)
+    monkeypatch.setattr(pipeline_module, "summarize", summarize_node)
+    monkeypatch.setattr(pipeline_module, "enrich", enrich_node)
+    monkeypatch.setattr(pipeline_module, "publish", publish_node)
+    monkeypatch.setattr(pipeline_module, "route_after_deduplicate", lambda state: "summarize")
+
+    result = asyncio.run(run_pipeline())
+
+    assert calls == ["fetch_sources", "deduplicate", "summarize", "enrich", "publish"]
+    assert result["raw_items"] == [item]
+    assert result["new_items"] == [item]
+    assert result["report"] == "digest"
+    assert result["publish_results"]["status"] == "success"
+
+
+def test_run_pipeline_reuses_last_digest_when_no_new_items(monkeypatch):
+    calls = []
+
+    async def fetch(state):
+        calls.append("fetch_sources")
+        return {"raw_items": []}
+
+    async def dedup(state):
+        calls.append("deduplicate")
+        return {"new_items": []}
+
+    def reuse(state):
+        calls.append("use_last_digest")
+        return {"report": "last digest", "publish_results": {"status": "reused"}}
+
+    async def unexpected(state):
+        raise AssertionError("pipeline should stop after reusing last digest")
+
+    monkeypatch.setattr(pipeline_module, "fetch_sources", fetch)
+    monkeypatch.setattr(pipeline_module, "deduplicate", dedup)
+    monkeypatch.setattr(pipeline_module, "use_last_digest", reuse)
+    monkeypatch.setattr(pipeline_module, "summarize", unexpected)
+    monkeypatch.setattr(pipeline_module, "publish", unexpected)
+    monkeypatch.setattr(pipeline_module, "route_after_deduplicate", lambda state: "use_last_digest")
+
+    result = asyncio.run(run_pipeline())
+
+    assert calls == ["fetch_sources", "deduplicate", "use_last_digest"]
+    assert result["report"] == "last digest"
+    assert result["publish_results"]["status"] == "reused"
+
+
+def test_run_pipeline_ends_when_no_new_items_and_no_digest(monkeypatch):
+    calls = []
+
+    async def fetch(state):
+        calls.append("fetch_sources")
+        return {"raw_items": []}
+
+    async def dedup(state):
+        calls.append("deduplicate")
+        return {"new_items": []}
+
+    async def unexpected(state):
+        raise AssertionError("pipeline should stop without summarize or publish")
+
+    monkeypatch.setattr(pipeline_module, "fetch_sources", fetch)
+    monkeypatch.setattr(pipeline_module, "deduplicate", dedup)
+    monkeypatch.setattr(pipeline_module, "summarize", unexpected)
+    monkeypatch.setattr(pipeline_module, "publish", unexpected)
+    monkeypatch.setattr(pipeline_module, "route_after_deduplicate", lambda state: "end")
+
+    result = asyncio.run(run_pipeline())
+
+    assert calls == ["fetch_sources", "deduplicate"]
+    assert result["raw_items"] == []
+    assert result["new_items"] == []
+    assert result["publish_results"] == {}
 
 
 def test_fetch_sources_missing_config_returns_actionable_error(tmp_path, monkeypatch):
