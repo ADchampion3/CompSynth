@@ -22,7 +22,7 @@ subscriptions.yaml
 | Config | `src/comp_synth/config.py` | Pydantic settings loaded from `COMPSYNTH_` env vars and `.env`. |
 | Schemas | `src/comp_synth/schema/` | `ContentItem`, `RSSItem`, `WebPageItem`, and site schema models. |
 | Crawlers | `src/comp_synth/crawlers/` | RSS, adaptive static web, dynamic JavaScript web fetching and extraction. |
-| Orchestration | `src/comp_synth/orchestration/` | LangGraph pipeline, source dispatch, deduplication, enrichment. |
+| Orchestration | `src/comp_synth/orchestration/` | Plain async pipeline, source dispatch, deduplication, enrichment. |
 | LLM providers | `src/comp_synth/llm_provider/` | LangChain provider registry for OpenAI-compatible and Anthropic models. |
 | Store | `src/comp_synth/store/` | SQLite article tracking, Chroma vector storage, site schema cache. |
 | Publishers | `src/comp_synth/publishers/` | Publisher interfaces for future output targets. |

@@ -14,7 +14,7 @@ class TopicGroup(TypedDict):
 
 
 class PipelineState(TypedDict):
-    """LangGraph 流水线状态定义"""
+    """Plain async pipeline state definition."""
 
     sources: list[dict]
     raw_items: list[ContentItem]
