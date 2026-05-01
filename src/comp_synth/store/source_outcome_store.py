@@ -5,7 +5,8 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import sessionmaker
 
 from comp_synth.config import settings
-from comp_synth.store.models import Base, resolve_db_path
+from comp_synth.store.migrations import bootstrap_database
+from comp_synth.store.models import resolve_db_path
 from comp_synth.store.repositories.source_crawl_outcome_repository import (
     SourceCrawlOutcomeRepository,
 )
@@ -25,7 +26,7 @@ class SourceOutcomeStore:
         from sqlalchemy import create_engine
 
         self._engine = create_engine(f"sqlite:///{self._db_path}", echo=False)
-        Base.metadata.create_all(self._engine)
+        bootstrap_database(self._engine)
         self._session_factory = sessionmaker(bind=self._engine)
 
     def _with_session(self, fn):

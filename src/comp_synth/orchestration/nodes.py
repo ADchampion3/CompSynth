@@ -50,6 +50,7 @@ async def fetch_sources(state: PipelineState) -> dict:
     return {
         "sources": sources,
         "raw_items": result.items,
+        "source_counts": result.source_counts,
         "content_manager": manager,
         "errors": result.errors,
     }

@@ -1,6 +1,8 @@
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
+from comp_synth.orchestration import nodes as nodes_module
 from comp_synth.orchestration import pipeline as pipeline_module
 from comp_synth.orchestration.nodes import fetch_sources, use_last_digest
 from comp_synth.orchestration.pipeline import route_after_deduplicate, run_pipeline
@@ -136,6 +138,34 @@ def test_fetch_sources_empty_config_skips_without_attribute_error(tmp_path, monk
 
     assert result["raw_items"] == []
     assert result["errors"] == ["No sources configured in subscriptions.yaml"]
+
+
+def test_fetch_sources_returns_source_counts(tmp_path, monkeypatch):
+    subscriptions = tmp_path / "subscriptions.yaml"
+    subscriptions.write_text(
+        """
+sources:
+  - type: rss
+    name: Good Feed
+    url: https://example.test/feed.xml
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("comp_synth.config.settings.subscriptions_path", subscriptions)
+
+    class FakeContentManager:
+        async def fetch_all(self, sources):
+            return SimpleNamespace(
+                items=[],
+                errors=[],
+                source_counts={"Good Feed": 2},
+            )
+
+    monkeypatch.setattr(nodes_module, "ContentManager", FakeContentManager)
+
+    result = asyncio.run(fetch_sources({}))
+
+    assert result["source_counts"] == {"Good Feed": 2}
 
 
 def test_use_last_digest_returns_newest_digest(tmp_path, monkeypatch):

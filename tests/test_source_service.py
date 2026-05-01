@@ -1,0 +1,124 @@
+import pytest
+
+from comp_synth.services.source_service import SourceService
+
+
+def test_list_sources_reads_subscriptions_yaml(tmp_path):
+    subscriptions = tmp_path / "subscriptions.yaml"
+    subscriptions.write_text(
+        """
+sources:
+  - type: rss
+    url: https://example.test/feed.xml
+    name: Example Feed
+  - type: web
+    url: https://example.test/
+    selectors:
+      - item_container: article
+        url: a
+    enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    service = SourceService(subscriptions_path=subscriptions)
+
+    sources = service.list_sources()
+
+    assert [source.source_key for source in sources] == [
+        "Example Feed",
+        "https://example.test/",
+    ]
+    assert sources[0].enabled is True
+    assert sources[1].enabled is False
+    assert sources[1].selectors == [{"item_container": "article", "url": "a"}]
+
+
+def test_list_sources_returns_empty_when_file_missing(tmp_path):
+    service = SourceService(subscriptions_path=tmp_path / "missing.yaml")
+
+    assert service.list_sources() == []
+
+
+def test_list_sources_rejects_invalid_sources_shape(tmp_path):
+    subscriptions = tmp_path / "subscriptions.yaml"
+    subscriptions.write_text("sources: invalid\n", encoding="utf-8")
+
+    service = SourceService(subscriptions_path=subscriptions)
+
+    with pytest.raises(ValueError, match="sources"):
+        service.list_sources()
+
+
+def test_import_yaml_persists_sources_to_database(tmp_path):
+    subscriptions = tmp_path / "subscriptions.yaml"
+    subscriptions.write_text(
+        """
+sources:
+  - type: rss
+    url: https://example.test/feed.xml
+    name: Example Feed
+  - type: web
+    url: https://example.test/
+    selectors:
+      - item_container: article
+        url: a
+    enabled: false
+    priority: high
+""",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "sources.db"
+
+    service = SourceService(subscriptions_path=subscriptions, source_db_path=db_path)
+    imported = service.import_yaml()
+
+    assert [source.source_key for source in imported] == [
+        "Example Feed",
+        "https://example.test/",
+    ]
+
+    reloaded = SourceService(subscriptions_path=tmp_path / "missing.yaml", source_db_path=db_path)
+    sources = reloaded.list_sources()
+
+    assert [source.source_key for source in sources] == [
+        "Example Feed",
+        "https://example.test/",
+    ]
+    assert sources[0].source_type == "rss"
+    assert sources[1].enabled is False
+    assert sources[1].selectors == [{"item_container": "article", "url": "a"}]
+    assert sources[1].raw_config["priority"] == "high"
+
+
+def test_export_yaml_writes_database_sources(tmp_path):
+    subscriptions = tmp_path / "subscriptions.yaml"
+    subscriptions.write_text(
+        """
+sources:
+  - type: rss
+    url: https://example.test/feed.xml
+    name: Example Feed
+  - type: web
+    url: https://example.test/
+    selectors:
+      - item_container: article
+        url: a
+    enabled: false
+""",
+        encoding="utf-8",
+    )
+    exported = tmp_path / "exported.yaml"
+    service = SourceService(subscriptions_path=subscriptions, source_db_path=tmp_path / "sources.db")
+    service.import_yaml()
+
+    service.export_yaml(exported)
+
+    reloaded = SourceService(subscriptions_path=exported)
+    sources = reloaded.list_sources()
+    assert [source.source_key for source in sources] == [
+        "Example Feed",
+        "https://example.test/",
+    ]
+    assert sources[1].enabled is False
+    assert sources[1].selectors == [{"item_container": "article", "url": "a"}]

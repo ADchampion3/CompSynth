@@ -226,7 +226,7 @@ class AdaptiveWebCrawler(BaseCrawler):
         logger.info("[step_4] heuristic | 尝试启发式方法提取")
         heuristic_items = await self._extract_list_items_heuristic(html, base_url)
         logger.info("[step_4] extracted_count={count}", count=len(heuristic_items))
-        return heuristic_items
+        return self._normalize_and_dedupe(heuristic_items, base_url)
 
     async def _learn_list_item_schema(
         self,

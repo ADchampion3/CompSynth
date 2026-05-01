@@ -24,7 +24,7 @@ def mock_schema_store(monkeypatch):
     """Mock SchemaStore 避免数据库依赖"""
     mock_store = MagicMock()
     mock_store.get.return_value = None
-    mock_store.can_use_llm.return_value = True
+    mock_store.can_use_llm.return_value = False
     mock_store.save.return_value = None
     mock_store.mark_llm_called.return_value = None
     mock_store.update_list_selectors.return_value = None
@@ -558,8 +558,41 @@ class TestListPageExtraction:
             assert len(items) == 2, f"应该只有2个唯一条目，实际: {len(items)}"
         asyncio.run(run())
 
-    def test_crawl_list_page_with_mocked_detail(self, mock_schema_store, meituan_list_html):
+    def test_extract_list_items_unit_path_does_not_call_llm(self, mock_schema_store, monkeypatch):
+        """List extraction unit tests should stay local and not invoke LLM selector learning."""
+        html = """
+        <html><body>
+            <div class="post-list">
+                <article class="post-item">
+                    <h2><a href="/article.html">A local article title</a></h2>
+                    <p class="summary">Summary</p>
+                </article>
+            </div>
+        </body></html>
+        """
+        llm_calls = []
+
+        async def fail_generate_selectors(self, html):
+            llm_calls.append(html)
+            return []
+
+        monkeypatch.setattr(
+            "comp_synth.crawlers.extractors.DOMExtractor.generate_list_item_selectors",
+            fail_generate_selectors,
+        )
+
+        async def run():
+            crawler = AdaptiveWebCrawler()
+            items = await crawler._extract_list_items(html, "https://example.com/", "example.com")
+            assert llm_calls == []
+            assert [item["url"] for item in items] == ["https://example.com/article.html"]
+
+        asyncio.run(run())
+
+    def test_crawl_list_page_with_mocked_detail(self, mock_schema_store, meituan_list_html, monkeypatch):
         """测试列表页爬取返回多个 WebPageItem（detail-fetch 由 ContentManager 调用）"""
+        monkeypatch.setattr("comp_synth.config.settings.list_page_time_threshold_days", 0)
+
         async def run():
             crawler = AdaptiveWebCrawler()
 

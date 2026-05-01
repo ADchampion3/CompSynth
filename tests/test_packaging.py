@@ -15,3 +15,9 @@ def test_console_script_points_to_existing_main():
     module = importlib.import_module(module_name)
 
     assert callable(getattr(module, function_name))
+
+
+def test_project_description_is_readable_chinese():
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert pyproject["project"]["description"] == "内容聚合与发布系统 - 自动订阅、整合分析、媒体推送"

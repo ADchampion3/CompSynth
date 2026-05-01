@@ -4,7 +4,8 @@ from sqlalchemy.orm import sessionmaker
 
 from comp_synth.config import settings
 from comp_synth.schema.site_chema import SiteSchema
-from comp_synth.store.models import Base, resolve_db_path
+from comp_synth.store.migrations import bootstrap_database
+from comp_synth.store.models import resolve_db_path
 from comp_synth.store.repositories.site_schema_repository import SiteSchemaRepository
 
 
@@ -24,7 +25,7 @@ class SchemaStore:
         from sqlalchemy import create_engine
 
         self._engine = create_engine(f"sqlite:///{self._db_path}", echo=False)
-        Base.metadata.create_all(self._engine)
+        bootstrap_database(self._engine)
         self._ensure_schema_columns()
         self._session_factory = sessionmaker(bind=self._engine)
 

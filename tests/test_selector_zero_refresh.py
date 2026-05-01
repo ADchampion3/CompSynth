@@ -71,6 +71,66 @@ def test_source_outcome_counts_distinct_zero_days_and_ignores_errors():
     assert last_success == 3
 
 
+def test_source_outcome_lists_source_health_by_latest_outcome_and_zero_days():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    now = datetime(2026, 4, 30, 10, 0, 0)
+
+    with Session() as session:
+        repo = SourceCrawlOutcomeRepository(session)
+        repo.record(
+            source_key="Stale Feed",
+            source_type="web",
+            site_name="stale.test",
+            source_url="https://stale.test",
+            new_item_count=0,
+            error=None,
+            crawled_at=now - timedelta(days=2),
+        )
+        repo.record(
+            source_key="Stale Feed",
+            source_type="web",
+            site_name="stale.test",
+            source_url="https://stale.test",
+            new_item_count=0,
+            error=None,
+            crawled_at=now - timedelta(days=1),
+        )
+        repo.record(
+            source_key="Broken Feed",
+            source_type="rss",
+            site_name="broken.test",
+            source_url="https://broken.test/feed.xml",
+            new_item_count=0,
+            error="timeout",
+            crawled_at=now,
+        )
+        repo.record(
+            source_key="Healthy Feed",
+            source_type="rss",
+            site_name="healthy.test",
+            source_url="https://healthy.test/feed.xml",
+            new_item_count=4,
+            error=None,
+            crawled_at=now - timedelta(hours=1),
+        )
+        session.commit()
+
+        health = repo.list_source_health(
+            lookback_days=7,
+            zero_day_threshold=2,
+            now=now,
+        )
+
+    assert [(entry.source_key, entry.status, entry.recent_zero_days, entry.last_error) for entry in health] == [
+        ("Broken Feed", "failed", 0, "timeout"),
+        ("Stale Feed", "stale", 2, None),
+        ("Healthy Feed", "healthy", 0, None),
+    ]
+
+
 def test_site_schema_repository_tracks_stale_refresh_cooldown():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

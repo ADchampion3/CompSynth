@@ -1,8 +1,10 @@
 """Article repository - data access layer for articles."""
 
+import json
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import String as SqlString
+from sqlalchemy import cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from comp_synth.schema.content_item import ContentItem
@@ -36,6 +38,7 @@ class ArticleRepository:
         """Convert ArticleModel ORM object to ContentItem Pydantic model."""
         metadata = dict(row.extra_metadata) if row.extra_metadata else {}
         tags = metadata.pop("tags", ["其他"])
+        metadata["_liked"] = row.liked
         return ContentItem(
             id=row.article_id,
             source=row.source,
@@ -80,6 +83,79 @@ class ArticleRepository:
         rows = self._session.execute(stmt).scalars().all()
         return [self._to_domain(row) for row in rows]
 
+    def list_recent(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        source: str | None = None,
+        tag: str | None = None,
+        liked: bool | None = None,
+        query: str | None = None,
+    ) -> list[ContentItem]:
+        """List articles ordered by crawl time, newest first."""
+        stmt = self._filtered_select(source=source, tag=tag, liked=liked, query=query)
+        stmt = stmt.order_by(ArticleModel.crawled_at.desc(), ArticleModel.article_id.asc()).limit(limit).offset(offset)
+        rows = self._session.execute(stmt).scalars().all()
+        return [self._to_domain(row) for row in rows]
+
+    def count(
+        self,
+        source: str | None = None,
+        tag: str | None = None,
+        liked: bool | None = None,
+        query: str | None = None,
+    ) -> int:
+        """Count stored articles."""
+        stmt = self._filtered_select(
+            select(func.count()).select_from(ArticleModel),
+            source=source,
+            tag=tag,
+            liked=liked,
+            query=query,
+        )
+        return int(self._session.execute(stmt).scalar_one())
+
+    @staticmethod
+    def _escape_like(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    def _filtered_select(
+        self,
+        stmt=None,
+        source: str | None = None,
+        tag: str | None = None,
+        liked: bool | None = None,
+        query: str | None = None,
+    ):
+        if stmt is None:
+            stmt = select(ArticleModel)
+        if source:
+            stmt = stmt.where(ArticleModel.source == source)
+        if tag:
+            escaped = self._escape_like(tag)
+            encoded_tag = json.dumps(tag, ensure_ascii=True).strip('"')
+            encoded_escaped = self._escape_like(encoded_tag)
+            metadata_text = cast(ArticleModel.extra_metadata, SqlString)
+            stmt = stmt.where(
+                or_(
+                    metadata_text.like(f"%{escaped}%", escape="\\"),
+                    metadata_text.like(f"%{encoded_escaped}%", escape="\\"),
+                )
+            )
+        if liked is not None:
+            stmt = stmt.where(ArticleModel.liked == (1 if liked else 0))
+        if query:
+            escaped_query = self._escape_like(query)
+            pattern = f"%{escaped_query}%"
+            stmt = stmt.where(
+                or_(
+                    ArticleModel.title.ilike(pattern, escape="\\"),
+                    ArticleModel.summary.ilike(pattern, escape="\\"),
+                    ArticleModel.content.ilike(pattern, escape="\\"),
+                )
+            )
+        return stmt
+
     def is_crawled(self, source: str, url: str) -> bool:
         """Check if a URL has already been crawled."""
         aid = f"{source}:{url}"
@@ -109,6 +185,15 @@ class ArticleRepository:
         row = self._session.execute(stmt).scalar_one_or_none()
         if row:
             row.liked = 1 if liked else 0
+
+    def set_liked_by_id(self, article_id: str, liked: bool = True) -> bool:
+        """Set or unset liked status by article id."""
+        stmt = select(ArticleModel).where(ArticleModel.article_id == article_id)
+        row = self._session.execute(stmt).scalar_one_or_none()
+        if row is None:
+            return False
+        row.liked = 1 if liked else 0
+        return True
 
     def get_liked_items(self) -> list[ContentItem]:
         """Get all liked articles."""
