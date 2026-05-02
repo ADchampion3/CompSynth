@@ -1,4 +1,5 @@
 import { useDashboard, useStartCrawl } from "../../api/hooks";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import ErrorCard from "../ui/ErrorCard";
 import LoadingSkeleton from "../ui/LoadingSkeleton";
 import CrawlStatusCard from "./CrawlStatusCard";
@@ -8,6 +9,7 @@ import SourceHealthList from "./SourceHealthList";
 export default function DashboardPage() {
   const { data, isLoading, error } = useDashboard();
   const startCrawl = useStartCrawl();
+  useDocumentTitle("Briefing");
 
   if (isLoading) {
     return (
@@ -37,7 +39,7 @@ export default function DashboardPage() {
         <button
           onClick={() => startCrawl.mutate()}
           disabled={startCrawl.isPending}
-          className="shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-paper hover:bg-accent-hover disabled:opacity-50 transition-colors"
+          className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-paper hover:bg-accent-hover disabled:opacity-50 transition-colors min-h-[44px]"
         >
           {startCrawl.isPending ? "Starting…" : "Run Crawl"}
         </button>

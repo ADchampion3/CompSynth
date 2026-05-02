@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useReports } from "../../api/hooks";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { formatDate } from "../../lib/format";
 import ErrorCard from "../ui/ErrorCard";
 import LoadingSkeleton from "../ui/LoadingSkeleton";
@@ -7,6 +8,7 @@ import EmptyState from "../ui/EmptyState";
 
 export default function ReportsListPage() {
   const { data, isLoading, error } = useReports();
+  useDocumentTitle("Reports");
 
   if (isLoading) {
     return (

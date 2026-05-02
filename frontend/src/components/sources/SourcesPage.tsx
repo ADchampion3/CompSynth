@@ -1,4 +1,5 @@
 import { useSources, useImportYaml } from "../../api/hooks";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import ErrorCard from "../ui/ErrorCard";
 import { SkeletonTable } from "../ui/LoadingSkeleton";
 import EmptyState from "../ui/EmptyState";
@@ -7,6 +8,7 @@ import SourcesTable from "./SourcesTable";
 export default function SourcesPage() {
   const { data, isLoading, error } = useSources();
   const importYaml = useImportYaml();
+  useDocumentTitle("Sources");
 
   return (
     <div className="p-6 md:p-8 max-w-4xl">
@@ -17,7 +19,7 @@ export default function SourcesPage() {
         <button
           onClick={() => importYaml.mutate()}
           disabled={importYaml.isPending}
-          className="shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-paper hover:bg-accent-hover disabled:opacity-50 transition-colors"
+          className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-paper hover:bg-accent-hover disabled:opacity-50 transition-colors min-h-[44px]"
         >
           {importYaml.isPending ? "Importing…" : "Import YAML"}
         </button>

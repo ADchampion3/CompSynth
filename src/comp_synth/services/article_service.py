@@ -97,6 +97,12 @@ class ArticleService:
         self._state_repository.save_note(article_id, user_note)
         return True
 
+    def update_tags(self, article_id: str, tags: list[str]) -> bool:
+        return self._repository.update_tags(article_id, tags)
+
+    def get_tag_vocabulary(self) -> list[str]:
+        return self._repository.get_tag_vocabulary()
+
     def list_important_unread(self, limit: int = 20) -> list[ImportantArticle]:
         """Return unread articles ordered by a lightweight importance score."""
         safe_limit = max(1, min(limit, 100))

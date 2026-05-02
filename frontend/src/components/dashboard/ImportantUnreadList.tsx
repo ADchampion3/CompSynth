@@ -44,7 +44,7 @@ export default function ImportantUnreadList({
                 <span>{formatRelativeTime(article.published_at ?? article.collected_at)}</span>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-2 shrink-0 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
               <span className="text-xs text-ink-4 tabular-nums">
                 {importance_score.toFixed(1)}
               </span>
@@ -56,7 +56,7 @@ export default function ImportantUnreadList({
                   })
                 }
                 disabled={markRead.isPending}
-                className="text-xs text-ink-3 hover:text-ink disabled:opacity-50"
+                className="text-xs text-ink-3 hover:text-ink disabled:opacity-50 min-h-[44px] px-3 rounded-md hover:bg-paper-2 transition-colors"
               >
                 Read
               </button>

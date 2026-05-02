@@ -18,6 +18,8 @@ import type {
   ReportDetailResponse,
   ReportSummaryResponse,
   SourceResponse,
+  TagVocabularyResponse,
+  TagsUpdateRequest,
 } from "./types";
 
 // Dashboard
@@ -256,5 +258,72 @@ export function useReportDetail(reportId: string | undefined) {
         `/reports/${encodeURIComponent(reportId!)}`,
       ),
     enabled: !!reportId,
+  });
+}
+
+// Tags
+export function useTags() {
+  return useQuery({
+    queryKey: ["tags"],
+    queryFn: () => apiGet<TagVocabularyResponse>("/tags"),
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateArticleTags() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      articleId,
+      tags,
+    }: {
+      articleId: string;
+      tags: string[];
+    }) =>
+      apiPatch<ArticleResponse>(
+        "/articles/tags",
+        { article_id: articleId },
+        { tags } satisfies TagsUpdateRequest,
+      ),
+    onMutate: async ({ articleId, tags }) => {
+      await qc.cancelQueries({ queryKey: ["articles"] });
+      await qc.cancelQueries({ queryKey: ["tags"] });
+
+      // Update articles list cache
+      const pageSnapshots = qc.getQueriesData<ArticlePageResponse>({ queryKey: ["articles"] });
+      for (const [key, old] of pageSnapshots) {
+        if (!old) continue;
+        qc.setQueryData(key, {
+          ...old,
+          items: old.items.map((a) =>
+            a.article_id === articleId ? { ...a, tags } : a,
+          ),
+        });
+      }
+
+      // Update article detail cache
+      const detailSnapshot = qc.getQueryData<ArticleResponse>(["articles", "detail", articleId]);
+      if (detailSnapshot) {
+        qc.setQueryData(["articles", "detail", articleId], {
+          ...detailSnapshot,
+          tags,
+        });
+      }
+
+      return { pageSnapshots, detailSnapshot };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.pageSnapshots) {
+        for (const [key, data] of ctx.pageSnapshots) {
+          qc.setQueryData(key, data);
+        }
+      }
+      if (ctx?.detailSnapshot && _vars) {
+        qc.setQueryData(["articles", "detail", _vars.articleId], ctx.detailSnapshot);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["tags"] });
+    },
   });
 }

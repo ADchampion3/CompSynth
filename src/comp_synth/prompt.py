@@ -124,20 +124,35 @@ DOM_PROMPTS = {
 """,
 }
 
-# Article Summary Prompt (used in ContentManager for per-article summarization)
-ARTICLE_SUMMARY_PROMPT = """请分析以下文章，完成两个任务：
-1. 用2-3句话总结核心内容（保留关键信息，总字数控制在200字以内）
-2. 从以下标签中选择1-3个最合适的分类标签：技术博客、比赛信息、就业招聘、技术发布、其他
+DEFAULT_TAG_VOCABULARY = ["技术博客", "比赛信息", "就业招聘", "技术发布", "其他"]
 
-标签说明：
-- 技术博客：技术文章、教程、经验分享、原理分析
-- 比赛信息：编程竞赛、CTF、Hackathon、算法比赛等
-- 就业招聘：招聘信息、求职、面试经验、实习岗位
-- 技术发布：产品发布、版本更新、技术公告、新功能上线
-- 其他：不属于以上类别的文章
+TAG_CAP = 30
+
+
+def _sanitize_tags(tags: list[str]) -> list[str]:
+    """Strip newlines and control chars from tags before prompt insertion."""
+    clean = []
+    for t in tags[:TAG_CAP]:
+        stripped = "".join(c for c in t if ord(c) >= 0x20).strip()
+        if stripped:
+            clean.append(stripped)
+    return clean
+
+
+def build_summary_prompt(tags: list[str] | None = None) -> str:
+    """Build the article summary prompt with a dynamic tag vocabulary."""
+    vocabulary = _sanitize_tags(tags) if tags else DEFAULT_TAG_VOCABULARY
+    tag_list = "、".join(vocabulary)
+    return f"""请分析以下文章，完成两个任务：
+1. 用2-3句话总结核心内容（保留关键信息，总字数控制在200字以内）
+2. 从以下标签中选择1-3个最合适的分类标签：{tag_list}
 
 请直接返回 JSON 格式，不要 markdown 代码块：
-{"summary": "总结内容...", "tags": ["标签1", "标签2"]}"""
+{{"summary": "总结内容...", "tags": ["标签1", "标签2"]}}"""
+
+
+# Backward-compatible constant for callers that haven't migrated yet
+ARTICLE_SUMMARY_PROMPT = build_summary_prompt()
 
 # Content Analyst Prompt (used in nodes.py summarize)
 CONTENT_ANALYST_PROMPT = """你是一个内容分析师。你将收到一组文章。

@@ -1,5 +1,6 @@
 import { useSearchParams } from "react-router-dom";
 import { useArticles } from "../../api/hooks";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import ErrorCard from "../ui/ErrorCard";
 import LoadingSkeleton from "../ui/LoadingSkeleton";
 import EmptyState from "../ui/EmptyState";
@@ -16,6 +17,7 @@ export default function InboxPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedArticle, setSelectedArticle] =
     useState<ArticleResponse | null>(null);
+  useDocumentTitle("Inbox");
 
   const rawOffset = Number(searchParams.get("offset") ?? 0);
   const offset =
@@ -51,6 +53,11 @@ export default function InboxPage() {
     setSelectedArticle(null);
   }
 
+  function clearFilters() {
+    setSearchParams(new URLSearchParams());
+    setSelectedArticle(null);
+  }
+
   function handlePageChange(newOffset: number) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -71,6 +78,7 @@ export default function InboxPage() {
           query={query}
           readState={readState}
           onFilterChange={setFilter}
+          onClear={clearFilters}
         />
       </div>
 
@@ -93,6 +101,7 @@ export default function InboxPage() {
                 query={query}
                 readState={readState}
                 onFilterChange={setFilter}
+                onClear={clearFilters}
               />
             </div>
           </details>

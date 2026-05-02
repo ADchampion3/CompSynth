@@ -1,5 +1,6 @@
 import { useParams, Link } from "react-router-dom";
 import { useArticleDetail, useArticleState } from "../../api/hooks";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import ErrorCard from "../ui/ErrorCard";
 import LoadingSkeleton from "../ui/LoadingSkeleton";
 import ArticleHeader from "./ArticleHeader";
@@ -16,6 +17,8 @@ export default function ArticleDetailPage() {
     error,
   } = useArticleDetail(articleId);
   const { data: state } = useArticleState(articleId);
+
+  useDocumentTitle(article?.title ?? "");
 
   if (isLoading) {
     return (

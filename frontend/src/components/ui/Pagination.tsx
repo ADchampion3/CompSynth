@@ -23,14 +23,14 @@ export default function Pagination({
         <button
           onClick={() => onPageChange(offset - limit)}
           disabled={!hasPrev}
-          className="rounded-md px-3 py-1 text-sm border border-rule hover:bg-paper-2 disabled:opacity-30 transition-colors"
+          className="rounded-md px-3 py-2 text-sm border border-rule hover:bg-paper-2 disabled:opacity-30 transition-colors min-h-[44px]"
         >
           Prev
         </button>
         <button
           onClick={() => onPageChange(offset + limit)}
           disabled={!hasNext}
-          className="rounded-md px-3 py-1 text-sm border border-rule hover:bg-paper-2 disabled:opacity-30 transition-colors"
+          className="rounded-md px-3 py-2 text-sm border border-rule hover:bg-paper-2 disabled:opacity-30 transition-colors min-h-[44px]"
         >
           Next
         </button>

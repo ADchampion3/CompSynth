@@ -38,6 +38,7 @@ class ArticleModel(Base):
     url: Mapped[str] = mapped_column(String, nullable=False)
     source: Mapped[str] = mapped_column(String, nullable=False)
     extra_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    tags: Mapped[str] = mapped_column(Text, default="[]")
     liked: Mapped[int] = mapped_column(Integer, default=0)
 
 

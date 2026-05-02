@@ -3,12 +3,14 @@ import Markdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { useReportDetail } from "../../api/hooks";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import ErrorCard from "../ui/ErrorCard";
 import LoadingSkeleton from "../ui/LoadingSkeleton";
 
 export default function ReportDetailPage() {
   const { reportId } = useParams();
   const { data, isLoading, error } = useReportDetail(reportId);
+  useDocumentTitle(data?.title ?? "Report");
 
   if (isLoading) {
     return (

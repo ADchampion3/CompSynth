@@ -19,6 +19,7 @@ from comp_synth.api.deps import (
     get_session,
     get_source_service,
 )
+from comp_synth.api.routers.tags import invalidate_tag_cache
 from comp_synth.schema.content_item import ContentItem
 from comp_synth.services.crawl_service import CrawlService
 from comp_synth.services.report_service import ReportService
@@ -35,6 +36,13 @@ def _make_engine():
     )
     bootstrap_database(engine)
     return engine
+
+
+@pytest.fixture(autouse=True)
+def _reset_tag_cache():
+    invalidate_tag_cache()
+    yield
+    invalidate_tag_cache()
 
 
 def _make_session(engine) -> Session:
@@ -220,6 +228,94 @@ class TestArticlesAPI:
         resp = client.get("/api/articles/related", params={"article_id": "some:id"})
         assert resp.status_code == 200
         assert resp.json()["implemented"] is False
+
+    def test_list_articles_filtered_by_tag(self, output_dir):
+        client, _ = _make_app_with_articles(output_dir, _sample_items())
+        resp = client.get("/api/articles", params={"tag": "技术博客"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["items"][0]["title"] == "First article"
+
+    def test_list_articles_filtered_by_nonexistent_tag(self, output_dir):
+        client, _ = _make_app_with_articles(output_dir, _sample_items())
+        resp = client.get("/api/articles", params={"tag": "nonexistent"})
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+
+class TestTagsAPI:
+    def test_get_tags_empty(self, output_dir):
+        client = _make_test_client(output_dir)
+        resp = client.get("/api/tags")
+        assert resp.status_code == 200
+        assert resp.json()["tags"] == []
+
+    def test_get_tags_returns_distinct(self, output_dir):
+        client, _ = _make_app_with_articles(output_dir, _sample_items())
+        resp = client.get("/api/tags")
+        assert resp.status_code == 200
+        tags = resp.json()["tags"]
+        assert "技术博客" in tags
+        assert "其他" in tags
+
+    def test_update_article_tags(self, output_dir):
+        client, items = _make_app_with_articles(output_dir, _sample_items())
+        resp = client.patch(
+            "/api/articles/tags",
+            params={"article_id": items[0].id},
+            json={"tags": ["技术博客", "new-tag"]},
+        )
+        assert resp.status_code == 200
+        assert "new-tag" in resp.json()["tags"]
+
+    def test_update_article_tags_clear(self, output_dir):
+        client, items = _make_app_with_articles(output_dir, _sample_items())
+        resp = client.patch(
+            "/api/articles/tags",
+            params={"article_id": items[0].id},
+            json={"tags": []},
+        )
+        assert resp.status_code == 200
+        # Empty tags are returned as ["其他"] by _parse_tags
+        assert resp.json()["tags"] == ["其他"]
+
+    def test_update_tags_nonexistent_article(self, output_dir):
+        client = _make_test_client(output_dir)
+        resp = client.patch(
+            "/api/articles/tags",
+            params={"article_id": "nonexistent:id"},
+            json={"tags": ["test"]},
+        )
+        assert resp.status_code == 404
+
+    def test_update_tags_rejects_too_long(self, output_dir):
+        client, items = _make_app_with_articles(output_dir, _sample_items())
+        resp = client.patch(
+            "/api/articles/tags",
+            params={"article_id": items[0].id},
+            json={"tags": ["a" * 51]},
+        )
+        assert resp.status_code == 422
+
+    def test_update_tags_rejects_control_chars(self, output_dir):
+        client, items = _make_app_with_articles(output_dir, _sample_items())
+        resp = client.patch(
+            "/api/articles/tags",
+            params={"article_id": items[0].id},
+            json={"tags": ["tag\nwith\nnewlines"]},
+        )
+        assert resp.status_code == 422
+
+    def test_update_tags_deduplicates(self, output_dir):
+        client, items = _make_app_with_articles(output_dir, _sample_items())
+        resp = client.patch(
+            "/api/articles/tags",
+            params={"article_id": items[0].id},
+            json={"tags": ["技术博客", "技术博客"]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["tags"] == ["技术博客"]
 
 
 # --- Sources ---

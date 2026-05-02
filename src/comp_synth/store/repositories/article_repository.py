@@ -3,8 +3,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import String as SqlString
-from sqlalchemy import cast, func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from comp_synth.schema.content_item import ContentItem
@@ -17,9 +16,18 @@ class ArticleRepository:
     def __init__(self, session: Session):
         self._session = session
 
+    @staticmethod
+    def _parse_tags(tags_json: str | None) -> list[str]:
+        if not tags_json:
+            return ["其他"]
+        try:
+            parsed = json.loads(tags_json)
+            return parsed if isinstance(parsed, list) and parsed else ["其他"]
+        except (json.JSONDecodeError, TypeError):
+            return ["其他"]
+
     def _to_model(self, item: ContentItem) -> ArticleModel:
         """Convert ContentItem Pydantic model to ArticleModel ORM object."""
-        metadata = {**item.metadata, "tags": item.tags}
         return ArticleModel(
             article_id=item.id,
             vector_id=item.id,
@@ -30,15 +38,16 @@ class ArticleRepository:
             title=item.title,
             url=item.url,
             source=item.source,
-            extra_metadata=metadata,
+            extra_metadata=item.metadata,
+            tags=json.dumps(item.tags, ensure_ascii=False),
             liked=0,
         )
 
     def _to_domain(self, row: ArticleModel) -> ContentItem:
         """Convert ArticleModel ORM object to ContentItem Pydantic model."""
         metadata = dict(row.extra_metadata) if row.extra_metadata else {}
-        tags = metadata.pop("tags", ["其他"])
         metadata["_liked"] = row.liked
+        tags = self._parse_tags(row.tags)
         return ContentItem(
             id=row.article_id,
             source=row.source,
@@ -53,7 +62,7 @@ class ArticleRepository:
         )
 
     def save(self, item: ContentItem) -> None:
-        """Save or update a ContentItem."""
+        """Save or update a ContentItem. Preserves user-edited tags on update."""
         stmt = select(ArticleModel).where(ArticleModel.article_id == item.id)
         existing = self._session.execute(stmt).scalar_one_or_none()
         if existing:
@@ -65,7 +74,8 @@ class ArticleRepository:
             existing.title = item.title
             existing.url = item.url
             existing.source = item.source
-            existing.extra_metadata = {**item.metadata, "tags": item.tags}
+            existing.extra_metadata = item.metadata
+            # Preserve user-edited tags; only set tags on first save
         else:
             self._session.add(self._to_model(item))
 
@@ -136,15 +146,8 @@ class ArticleRepository:
         if source:
             stmt = stmt.where(ArticleModel.source == source)
         if tag:
-            escaped = self._escape_like(tag)
-            encoded_tag = json.dumps(tag, ensure_ascii=True).strip('"')
-            encoded_escaped = self._escape_like(encoded_tag)
-            metadata_text = cast(ArticleModel.extra_metadata, SqlString)
             stmt = stmt.where(
-                or_(
-                    metadata_text.like(f"%{escaped}%", escape="\\"),
-                    metadata_text.like(f"%{encoded_escaped}%", escape="\\"),
-                )
+                text("EXISTS (SELECT 1 FROM json_each(tags) WHERE value = :tag)").bindparams(tag=tag)
             )
         if liked is not None:
             stmt = stmt.where(ArticleModel.liked == (1 if liked else 0))
@@ -212,6 +215,22 @@ class ArticleRepository:
             return False
         row.liked = 1 if liked else 0
         return True
+
+    def update_tags(self, article_id: str, tags: list[str]) -> bool:
+        """Update tags for an article. Returns False if article not found."""
+        stmt = select(ArticleModel).where(ArticleModel.article_id == article_id)
+        row = self._session.execute(stmt).scalar_one_or_none()
+        if row is None:
+            return False
+        row.tags = json.dumps(tags, ensure_ascii=False)
+        return True
+
+    def get_tag_vocabulary(self) -> list[str]:
+        """Get distinct tags across all articles."""
+        rows = self._session.execute(
+            text("SELECT DISTINCT j.value FROM articles a, json_each(a.tags) j ORDER BY j.value")
+        ).scalars().all()
+        return list(rows)
 
     def get_liked_items(self) -> list[ContentItem]:
         """Get all liked articles."""

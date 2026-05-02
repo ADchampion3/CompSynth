@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from comp_synth.api.deps import get_article_service
 from comp_synth.api.mappers import content_item_to_response
+from comp_synth.api.routers.tags import invalidate_tag_cache
 from comp_synth.api.schemas import (
     ArticleLikeUpdate,
     ArticleNoteUpdate,
@@ -12,6 +13,7 @@ from comp_synth.api.schemas import (
     ArticleStateResponse,
     ArticleStateUpdate,
     ErrorDetail,
+    TagsUpdateRequest,
 )
 from comp_synth.services.article_service import ArticleService
 
@@ -164,3 +166,18 @@ def get_related_articles(
 ):
     """Placeholder — VectorStore integration deferred to a later milestone."""
     return {"items": [], "total": 0, "implemented": False}
+
+
+@router.patch("/articles/tags", response_model=ArticleResponse)
+def update_article_tags(
+    body: TagsUpdateRequest,
+    article_id: str = Query(..., description="Article ID"),
+    service: ArticleService = Depends(get_article_service),
+):
+    article = service.get_article(article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail="Article not found")
+    service.update_tags(article_id, body.tags)
+    invalidate_tag_cache()
+    updated = service.get_article(article_id)
+    return content_item_to_response(updated)

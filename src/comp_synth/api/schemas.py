@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # --- Enums as Literal types ---
 
@@ -74,6 +74,32 @@ class ArticleLikeUpdate(BaseModel):
 
 class ArticleNoteUpdate(BaseModel):
     user_note: str
+
+
+class TagsUpdateRequest(BaseModel):
+    tags: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str]) -> list[str]:
+        seen = set()
+        result = []
+        for tag in v:
+            stripped = tag.strip()
+            if not stripped:
+                continue
+            if len(stripped) > 50:
+                raise ValueError(f"Tag too long (max 50 chars): {stripped[:20]}...")
+            if any(ord(c) < 0x20 for c in stripped):
+                raise ValueError(f"Tag contains control characters: {stripped[:20]}...")
+            if stripped not in seen:
+                seen.add(stripped)
+                result.append(stripped)
+        return result
+
+
+class TagVocabularyResponse(BaseModel):
+    tags: list[str]
 
 
 # --- Source schemas ---

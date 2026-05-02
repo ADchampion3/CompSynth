@@ -1,11 +1,6 @@
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field
-
-ArticleTag = Literal["技术博客", "比赛信息", "就业招聘", "技术发布", "其他"]
-
-ALL_TAGS: list[ArticleTag] = ["技术博客", "比赛信息", "就业招聘", "技术发布", "其他"]
 
 
 class ContentItem(BaseModel):

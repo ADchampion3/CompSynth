@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 
-from comp_synth.api.routers import articles, crawls, dashboard, reports, sources
+from comp_synth.api.routers import articles, crawls, dashboard, reports, sources, tags
 from comp_synth.api.schemas import ErrorDetail
 
 
@@ -62,5 +62,6 @@ def create_app() -> FastAPI:
     app.include_router(crawls.router, prefix="/api")
     app.include_router(reports.router, prefix="/api")
     app.include_router(dashboard.router, prefix="/api")
+    app.include_router(tags.router, prefix="/api")
 
     return app

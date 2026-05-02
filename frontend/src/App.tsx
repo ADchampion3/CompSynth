@@ -1,22 +1,75 @@
+import { lazy, Suspense } from "react";
 import { Routes, Route } from "react-router-dom";
 import AppShell from "./components/layout/AppShell";
-import DashboardPage from "./components/dashboard/DashboardPage";
-import InboxPage from "./components/inbox/InboxPage";
-import ArticleDetailPage from "./components/article/ArticleDetailPage";
-import ReportsListPage from "./components/reports/ReportsListPage";
-import ReportDetailPage from "./components/reports/ReportDetailPage";
-import SourcesPage from "./components/sources/SourcesPage";
+import LoadingSkeleton from "./components/ui/LoadingSkeleton";
+
+const DashboardPage = lazy(() => import("./components/dashboard/DashboardPage"));
+const InboxPage = lazy(() => import("./components/inbox/InboxPage"));
+const ArticleDetailPage = lazy(() => import("./components/article/ArticleDetailPage"));
+const ReportsListPage = lazy(() => import("./components/reports/ReportsListPage"));
+const ReportDetailPage = lazy(() => import("./components/reports/ReportDetailPage"));
+const SourcesPage = lazy(() => import("./components/sources/SourcesPage"));
+
+function PageLoader() {
+  return (
+    <div className="p-6 md:p-8 max-w-3xl">
+      <LoadingSkeleton lines={6} />
+    </div>
+  );
+}
 
 export default function App() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route index element={<DashboardPage />} />
-        <Route path="inbox" element={<InboxPage />} />
-        <Route path="articles/:articleId" element={<ArticleDetailPage />} />
-        <Route path="reports" element={<ReportsListPage />} />
-        <Route path="reports/:reportId" element={<ReportDetailPage />} />
-        <Route path="sources" element={<SourcesPage />} />
+        <Route
+          index
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <DashboardPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="inbox"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <InboxPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="articles/:articleId"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <ArticleDetailPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="reports"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <ReportsListPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="reports/:reportId"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <ReportDetailPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="sources"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <SourcesPage />
+            </Suspense>
+          }
+        />
       </Route>
     </Routes>
   );

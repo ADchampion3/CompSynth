@@ -65,6 +65,14 @@ export interface ArticleNoteUpdate {
   user_note: string;
 }
 
+export interface TagVocabularyResponse {
+  tags: string[];
+}
+
+export interface TagsUpdateRequest {
+  tags: string[];
+}
+
 export interface SelectorField {
   name: string;
   selector: string;

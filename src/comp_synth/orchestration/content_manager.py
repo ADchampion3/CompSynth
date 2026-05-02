@@ -194,6 +194,7 @@ class ContentManager:
         strategy_factory: SourceStrategyFactory | None = None,
         vector_store: VectorStore | None = None,
         source_outcome_store: SourceOutcomeStore | None = None,
+        tag_vocabulary: list[str] | None = None,
     ):
         """
         Initialize ContentManager.
@@ -206,12 +207,16 @@ class ContentManager:
                             will be created.
             vector_store: Optional VectorStore instance. If not provided,
                          a new one will be created.
+            source_outcome_store: Optional SourceOutcomeStore instance.
+            tag_vocabulary: Optional list of allowed tags. If not provided,
+                           defaults from prompt.py will be used.
         """
         self._tracker = crawl_tracker or CrawlTracker()
         self._vector_store = vector_store or VectorStore()
         self._source_outcome_store = source_outcome_store or SourceOutcomeStore()
         self._crawlers: dict[str, BaseCrawler] = {}
         self._strategy_factory = strategy_factory or SourceStrategyFactory.create_default_factory()
+        self._tag_vocabulary = tag_vocabulary
         self._last_crawl_time: float = 0.0
         self._crawl_lock = asyncio.Lock()
 
@@ -254,13 +259,13 @@ class ContentManager:
 
         from comp_synth.config import settings
         from comp_synth.llm_provider.registry import llm_registry
-        from comp_synth.prompt import ARTICLE_SUMMARY_PROMPT
-        from comp_synth.schema.content_item import ALL_TAGS
+        from comp_synth.prompt import build_summary_prompt
 
         truncated = content[:3000] if len(content) > 3000 else content
         llm = llm_registry.get(settings.model)
+        prompt_text = build_summary_prompt(tags=self._tag_vocabulary)
         response = await llm.ainvoke([
-            SystemMessage(content=ARTICLE_SUMMARY_PROMPT),
+            SystemMessage(content=prompt_text),
             HumanMessage(content=f"标题：{title}\n\n内容：{truncated}"),
         ])
         text = response.content.strip()
@@ -272,7 +277,8 @@ class ContentManager:
             result = json.loads(text)
             summary = result.get("summary", "").strip()
             raw_tags = result.get("tags", [])
-            tags = [t for t in raw_tags if t in ALL_TAGS] or ["其他"]
+            valid = set(self._tag_vocabulary) if self._tag_vocabulary else None
+            tags = [t for t in raw_tags if valid is None or t in valid] or ["其他"]
             return summary, tags
         except (json.JSONDecodeError, KeyError):
             return text, ["其他"]

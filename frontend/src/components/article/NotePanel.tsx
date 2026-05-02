@@ -21,10 +21,12 @@ export default function NotePanel({
 
   return (
     <section className="mt-6">
-      <h3 className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 mb-2">
+      <h3 id="notes-label" className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 mb-2">
         Notes
       </h3>
       <textarea
+        id="article-notes"
+        aria-labelledby="notes-label"
         value={note}
         onChange={(e) => setNote(e.target.value)}
         maxLength={10000}
