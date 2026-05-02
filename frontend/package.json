@@ -1,0 +1,29 @@
+{
+  "name": "compsynth-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-markdown": "^9",
+    "react-router-dom": "^7",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5",
+    "@tailwindcss/vite": "^4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4",
+    "typescript": "^5",
+    "vite": "^6"
+  }
+}
