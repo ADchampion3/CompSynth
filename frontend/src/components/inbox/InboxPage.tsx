@@ -63,7 +63,7 @@ export default function InboxPage() {
   return (
     <div className="flex h-full">
       {/* Filter rail - desktop */}
-      <div className="hidden md:block w-52 shrink-0 border-r border-gray-200 overflow-auto p-4">
+      <div className="hidden md:block w-52 shrink-0 border-r border-rule overflow-auto p-5">
         <FilterRail
           source={source}
           tag={tag}
@@ -75,15 +75,17 @@ export default function InboxPage() {
       </div>
 
       {/* Article list */}
-      <div className="flex-1 min-w-0 overflow-auto p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-lg font-bold">Inbox</h1>
+      <div className="flex-1 min-w-0 overflow-auto p-5 md:p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h1 className="font-display text-xl md:text-2xl font-bold text-ink">
+            Inbox
+          </h1>
           {/* Mobile filter toggle */}
           <details className="md:hidden">
-            <summary className="text-sm text-blue-600 cursor-pointer">
+            <summary className="text-xs font-medium uppercase tracking-wider text-accent-text cursor-pointer">
               Filters
             </summary>
-            <div className="mt-2 border border-gray-200 rounded p-3 bg-white">
+            <div className="mt-3 rounded-md border border-rule p-4 bg-paper">
               <FilterRail
                 source={source}
                 tag={tag}
@@ -119,7 +121,7 @@ export default function InboxPage() {
       </div>
 
       {/* Preview pane - desktop only */}
-      <div className="hidden lg:block w-80 shrink-0 border-l border-gray-200 overflow-auto">
+      <div className="hidden lg:block w-80 xl:w-96 shrink-0 border-l border-rule overflow-auto">
         <ArticlePreview article={selectedArticle} />
       </div>
     </div>

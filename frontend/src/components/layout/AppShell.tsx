@@ -12,55 +12,79 @@ export default function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex md:w-48 md:flex-col md:border-r md:border-gray-200 md:bg-gray-50">
-        <div className="p-4 text-lg font-bold">CompSynth</div>
-        <nav className="flex flex-col gap-1 px-2">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "/"}
-              className={({ isActive }) =>
-                `rounded px-3 py-2 text-sm ${
-                  isActive
-                    ? "bg-gray-200 font-medium"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
+    <div className="flex flex-col h-screen">
+      {/* Top bar */}
+      <header className="shrink-0 border-b border-rule bg-paper">
+        <div className="flex items-baseline justify-between px-5 py-3 md:px-8 md:py-4">
+          <NavLink
+            to="/"
+            className="font-display text-xl md:text-2xl font-bold text-ink tracking-tight"
+          >
+            CompSynth
+          </NavLink>
 
-      {/* Mobile top bar */}
-      <div className="flex md:hidden fixed top-0 inset-x-0 z-30 border-b border-gray-200 bg-white px-4 py-3">
-        <button
-          onClick={() => setMobileOpen(true)}
-          className="text-gray-700"
-          aria-label="Open menu"
-        >
-          ☰
-        </button>
-        <span className="ml-3 font-bold">CompSynth</span>
-      </div>
+          {/* Desktop nav */}
+          <nav className="hidden md:flex items-baseline gap-6">
+            {NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === "/"}
+                className={({ isActive }) =>
+                  `text-[0.8125rem] tracking-wide uppercase ${
+                    isActive
+                      ? "text-accent font-semibold"
+                      : "text-ink-3 font-medium hover:text-ink"
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
 
-      {/* Mobile drawer overlay */}
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="md:hidden text-ink-3 p-1 -mr-1"
+            aria-label="Open menu"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <line x1="3" y1="5" x2="17" y2="5" />
+              <line x1="3" y1="10" x2="17" y2="10" />
+              <line x1="3" y1="15" x2="17" y2="15" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      {/* Mobile drawer */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 md:hidden"
+          className="fixed inset-0 z-50 md:hidden"
           onClick={() => setMobileOpen(false)}
         >
-          <div className="absolute inset-0 bg-black/30" />
+          <div className="absolute inset-0 bg-ink/20" />
           <aside
-            className="relative w-56 bg-white p-4 shadow-lg"
+            className="absolute right-0 top-0 bottom-0 w-64 bg-paper p-6 shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-4 text-lg font-bold">CompSynth</div>
-            <nav className="flex flex-col gap-1">
+            <div className="flex items-baseline justify-between mb-8">
+              <span className="font-display text-lg font-bold text-ink">
+                CompSynth
+              </span>
+              <button
+                onClick={() => setMobileOpen(false)}
+                className="text-ink-3 p-1"
+                aria-label="Close menu"
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <line x1="3" y1="3" x2="15" y2="15" />
+                  <line x1="15" y1="3" x2="3" y2="15" />
+                </svg>
+              </button>
+            </div>
+            <nav className="flex flex-col gap-4">
               {NAV_ITEMS.map((item) => (
                 <NavLink
                   key={item.to}
@@ -68,10 +92,10 @@ export default function AppShell() {
                   end={item.to === "/"}
                   onClick={() => setMobileOpen(false)}
                   className={({ isActive }) =>
-                    `rounded px-3 py-2 text-sm ${
+                    `text-sm tracking-wide uppercase ${
                       isActive
-                        ? "bg-gray-200 font-medium"
-                        : "text-gray-700 hover:bg-gray-100"
+                        ? "text-accent font-semibold"
+                        : "text-ink-3 font-medium hover:text-ink"
                     }`
                   }
                 >
@@ -84,7 +108,7 @@ export default function AppShell() {
       )}
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto pt-14 md:pt-0">
+      <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
     </div>

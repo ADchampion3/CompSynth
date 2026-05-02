@@ -130,3 +130,31 @@ For multi-step tasks, state a brief plan:
 2. [Step] → verify: [check]
 3. [Step] → verify: [check]
 ```
+
+## Design Context
+
+### Users
+
+Researchers, engineers, and technically-minded readers who track Chinese-language technical blogs and publications. They arrive to triage a day's worth of feeds, quickly separate signal from noise, and leave with a curated understanding. The tool will be shared publicly (open-source or published digests), so the interface must feel polished and credible to first-time visitors.
+
+Primary use case: morning or end-of-day scan — open the inbox, skim topic clusters, read a few articles, check the digest. Speed matters, but so does the feeling of reading something well-edited.
+
+### Brand Personality
+
+**Calm, precise, editorial.** Three words: **measured, authoritative, unhurried**.
+
+The interface should feel like a well-edited newspaper or research journal's table of contents — information-dense but not overwhelming, every element placed with intention. Not a dashboard. Not a terminal. An editor's desk.
+
+### Aesthetic Direction
+
+Editorial/magazine with bilingual typographic sensitivity. Type-driven, spacious, restrained. Typography and spacing do the heavy lifting — not color, not decoration. Both light and dark themes following system preference (light primary). Japanese editorial design sensibility: attention to grid, negative space, and bilingual type harmony.
+
+Anti-references: generic SaaS dashboards, AI-generated aesthetics (glassmorphism, gradient text, cyan-on-dark), developer-tool monospace-everything.
+
+### Design Principles
+
+1. **Typography first.** Type hierarchy, weight, and spacing carry the visual identity. Choose fonts that honor both Latin and Chinese text equally.
+2. **Restraint as style.** Every decorative element must justify itself. White space is editorial voice.
+3. **Hierarchy through weight, not color.** Use size, weight, and proximity for visual priority. Color is for semantic meaning and sparing accent.
+4. **Bilingual harmony.** Design the type system so English UI labels and Chinese content both feel native.
+5. **Quiet authority.** No shouting. No animation to impress. Clarity and craft earn attention.

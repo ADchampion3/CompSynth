@@ -14,28 +14,30 @@ export default function ArticleHeader({
   const updateState = useUpdateArticleState();
 
   return (
-    <div className="space-y-2">
-      <h1 className="text-xl font-bold">{article.title || "(untitled)"}</h1>
-      <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
+    <div className="mt-4 space-y-3">
+      <h1 className="font-display text-2xl md:text-3xl font-bold text-ink leading-tight">
+        {article.title || "(untitled)"}
+      </h1>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-4">
         <span>{article.source}</span>
         {article.published_at && (
-          <span>Published: {formatDateTime(article.published_at)}</span>
+          <span>Published {formatDateTime(article.published_at)}</span>
         )}
         {article.collected_at && (
-          <span>Collected: {formatDateTime(article.collected_at)}</span>
+          <span>Collected {formatDateTime(article.collected_at)}</span>
         )}
         <a
           href={safeHref(article.url)}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-blue-600 hover:underline"
+          className="text-accent-text hover:underline"
         >
-          Open Original ↗
+          Original ↗
         </a>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 pt-1">
         <button
           onClick={() =>
             toggleLike.mutate({
@@ -43,40 +45,26 @@ export default function ArticleHeader({
               liked: article.liked !== 1,
             })
           }
-          className={`rounded border px-3 py-1 text-sm ${
+          className={`rounded-md px-3 py-1 text-xs font-medium border transition-colors ${
             article.liked === 1
-              ? "border-yellow-400 bg-yellow-50 text-yellow-700"
-              : "border-gray-300 text-gray-600 hover:bg-gray-50"
+              ? "border-warn/40 bg-warn-muted text-warn"
+              : "border-rule text-ink-3 hover:bg-paper-2"
           }`}
         >
           {article.liked === 1 ? "★ Liked" : "☆ Like"}
         </button>
 
-        {state?.read_state !== "read" ? (
-          <button
-            onClick={() =>
-              updateState.mutate({
-                articleId: article.article_id,
-                readState: "read",
-              })
-            }
-            className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50"
-          >
-            Mark Read
-          </button>
-        ) : (
-          <button
-            onClick={() =>
-              updateState.mutate({
-                articleId: article.article_id,
-                readState: "unread",
-              })
-            }
-            className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50"
-          >
-            Mark Unread
-          </button>
-        )}
+        <button
+          onClick={() =>
+            updateState.mutate({
+              articleId: article.article_id,
+              readState: state?.read_state === "read" ? "unread" : "read",
+            })
+          }
+          className="rounded-md border border-rule px-3 py-1 text-xs font-medium text-ink-3 hover:bg-paper-2 transition-colors"
+        >
+          {state?.read_state === "read" ? "Unread" : "Read"}
+        </button>
 
         <button
           onClick={() =>
@@ -85,9 +73,9 @@ export default function ArticleHeader({
               readState: "later",
             })
           }
-          className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50"
+          className="rounded-md border border-rule px-3 py-1 text-xs font-medium text-ink-3 hover:bg-paper-2 transition-colors"
         >
-          Read Later
+          Later
         </button>
 
         <button
@@ -97,14 +85,14 @@ export default function ArticleHeader({
               readState: "ignored",
             })
           }
-          className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50"
+          className="rounded-md border border-rule px-3 py-1 text-xs font-medium text-ink-3 hover:bg-paper-2 transition-colors"
         >
           Ignore
         </button>
 
         {state && (
-          <span className="text-xs text-gray-400 ml-2">
-            State: {state.read_state}
+          <span className="text-[0.6875rem] text-ink-4 ml-1 uppercase tracking-wider">
+            {state.read_state}
           </span>
         )}
       </div>

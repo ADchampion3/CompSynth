@@ -20,17 +20,19 @@ export default function NotePanel({
   }
 
   return (
-    <div>
-      <h3 className="text-xs font-semibold text-gray-500 mb-2">Notes</h3>
+    <section className="mt-6">
+      <h3 className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 mb-2">
+        Notes
+      </h3>
       <textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
         maxLength={10000}
         rows={4}
-        className="w-full rounded border border-gray-300 px-3 py-2 text-sm resize-y"
-        placeholder="Add your notes..."
+        className="w-full rounded-md border border-rule bg-paper px-3 py-2 text-sm text-ink resize-y focus:border-accent focus:outline-none transition-colors placeholder:text-ink-4"
+        placeholder="Add your notes…"
       />
-      <div className="flex items-center gap-2 mt-2">
+      <div className="flex items-center gap-3 mt-2">
         <button
           onClick={() => {
             saveNote.mutate(
@@ -39,17 +41,17 @@ export default function NotePanel({
             );
           }}
           disabled={saveNote.isPending || note === lastSaved}
-          className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+          className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-paper hover:bg-accent-hover disabled:opacity-40 transition-colors"
         >
-          {saveNote.isPending ? "Saving..." : "Save Note"}
+          {saveNote.isPending ? "Saving…" : "Save Note"}
         </button>
         {saveNote.isError && (
-          <span className="text-xs text-red-600">Save failed</span>
+          <span className="text-xs text-err">Save failed</span>
         )}
         {saveNote.isSuccess && note === lastSaved && (
-          <span className="text-xs text-green-600">Saved</span>
+          <span className="text-xs text-ok">Saved</span>
         )}
       </div>
-    </div>
+    </section>
   );
 }

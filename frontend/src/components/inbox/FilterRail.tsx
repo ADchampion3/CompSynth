@@ -27,26 +27,30 @@ export default function FilterRail({
   const { data: sources } = useSources();
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Search */}
       <div>
-        <label className="text-xs font-medium text-gray-500">Search</label>
+        <label className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 block mb-1.5">
+          Search
+        </label>
         <input
           type="text"
           value={query ?? ""}
           onChange={(e) => onFilterChange("query", e.target.value || undefined)}
-          placeholder="Search articles..."
-          className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+          placeholder="Search articles…"
+          className="w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-sm text-ink placeholder:text-ink-4 focus:border-accent focus:outline-none transition-colors"
         />
       </div>
 
       {/* Source filter */}
       <div>
-        <label className="text-xs font-medium text-gray-500">Source</label>
+        <label className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 block mb-1.5">
+          Source
+        </label>
         <select
           value={source ?? ""}
           onChange={(e) => onFilterChange("source", e.target.value || undefined)}
-          className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+          className="w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-sm text-ink focus:border-accent focus:outline-none transition-colors"
         >
           <option value="">All sources</option>
           {sources?.map((s) => (
@@ -59,11 +63,13 @@ export default function FilterRail({
 
       {/* Tag filter */}
       <div>
-        <label className="text-xs font-medium text-gray-500">Tag</label>
+        <label className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 block mb-1.5">
+          Tag
+        </label>
         <select
           value={tag ?? ""}
           onChange={(e) => onFilterChange("tag", e.target.value || undefined)}
-          className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+          className="w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-sm text-ink focus:border-accent focus:outline-none transition-colors"
         >
           <option value="">All tags</option>
           {ALL_TAGS.map((t) => (
@@ -76,18 +82,20 @@ export default function FilterRail({
 
       {/* Read state */}
       <div>
-        <label className="text-xs font-medium text-gray-500">State</label>
-        <div className="mt-1 flex flex-wrap gap-1">
+        <label className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 block mb-1.5">
+          State
+        </label>
+        <div className="flex flex-wrap gap-1.5">
           {READ_STATES.map((s) => {
             const active = readState === s.value || (!readState && s.value === "");
             return (
               <button
                 key={s.value}
                 onClick={() => onFilterChange("readState", s.value || undefined)}
-                className={`rounded px-2 py-0.5 text-xs ${
+                className={`rounded-sm px-2 py-0.5 text-xs font-medium transition-colors ${
                   active
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    ? "bg-accent text-paper"
+                    : "bg-paper-3 text-ink-3 hover:bg-paper-2 hover:text-ink"
                 }`}
               >
                 {s.label}
@@ -98,14 +106,14 @@ export default function FilterRail({
       </div>
 
       {/* Liked */}
-      <label className="flex items-center gap-2 text-sm">
+      <label className="flex items-center gap-2 text-sm text-ink-2 cursor-pointer">
         <input
           type="checkbox"
           checked={liked ?? false}
           onChange={(e) =>
             onFilterChange("liked", e.target.checked ? "true" : undefined)
           }
-          className="accent-blue-600"
+          className="accent-accent rounded-sm"
         />
         Liked only
       </label>
@@ -119,7 +127,7 @@ export default function FilterRail({
           onFilterChange("query", undefined);
           onFilterChange("readState", undefined);
         }}
-        className="text-xs text-gray-500 hover:text-gray-700"
+        className="text-xs text-ink-4 hover:text-ink transition-colors"
       >
         Clear filters
       </button>

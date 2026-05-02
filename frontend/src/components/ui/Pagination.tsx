@@ -15,22 +15,22 @@ export default function Pagination({
   const hasNext = offset + limit < total;
 
   return (
-    <div className="flex items-center justify-between py-3 text-sm text-gray-500">
-      <span>
-        Showing {from}–{to} of {total}
+    <div className="flex items-center justify-between py-4 text-sm text-ink-3">
+      <span className="tabular-nums">
+        {from}–{to} of {total}
       </span>
       <div className="flex gap-2">
         <button
           onClick={() => onPageChange(offset - limit)}
           disabled={!hasPrev}
-          className="rounded border border-gray-300 px-3 py-1 disabled:opacity-40 hover:bg-gray-50"
+          className="rounded-md px-3 py-1 text-sm border border-rule hover:bg-paper-2 disabled:opacity-30 transition-colors"
         >
           Prev
         </button>
         <button
           onClick={() => onPageChange(offset + limit)}
           disabled={!hasNext}
-          className="rounded border border-gray-300 px-3 py-1 disabled:opacity-40 hover:bg-gray-50"
+          className="rounded-md px-3 py-1 text-sm border border-rule hover:bg-paper-2 disabled:opacity-30 transition-colors"
         >
           Next
         </button>

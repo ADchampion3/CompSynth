@@ -10,31 +10,33 @@ export default function ReportsListPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
+      <div className="p-6 md:p-8 max-w-3xl">
         <LoadingSkeleton lines={5} />
       </div>
     );
   }
 
-  if (error) return <ErrorCard error={error} />;
+  if (error) return <div className="p-6 md:p-8 max-w-3xl"><ErrorCard error={error} /></div>;
 
   return (
-    <div className="p-6">
-      <h1 className="text-lg font-bold mb-4">Reports</h1>
+    <div className="p-6 md:p-8 max-w-3xl">
+      <h1 className="font-display text-2xl md:text-3xl font-bold text-ink mb-6">
+        Reports
+      </h1>
       {!data || data.length === 0 ? (
         <EmptyState message="No reports yet. Run a crawl to generate content." />
       ) : (
-        <ul className="divide-y divide-gray-100">
+        <ul className="divide-y divide-rule">
           {data.map((report) => (
-            <li key={report.report_id} className="py-3">
+            <li key={report.report_id}>
               <Link
                 to={`/reports/${report.report_id}`}
-                className="flex items-center justify-between hover:bg-gray-50 px-2 py-1 -mx-2 rounded"
+                className="flex items-baseline justify-between gap-4 py-3 group"
               >
-                <span className="text-sm font-medium text-gray-900">
+                <span className="font-display text-[0.9375rem] font-medium text-ink group-hover:text-accent-text transition-colors">
                   {report.title}
                 </span>
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-ink-4 shrink-0 tabular-nums">
                   {formatDate(report.created_at)}
                 </span>
               </Link>

@@ -9,25 +9,27 @@ export default function SourcesPage() {
   const importYaml = useImportYaml();
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-lg font-bold">Sources</h1>
+    <div className="p-6 md:p-8 max-w-4xl">
+      <div className="flex items-start justify-between gap-4 mb-6">
+        <h1 className="font-display text-2xl md:text-3xl font-bold text-ink">
+          Sources
+        </h1>
         <button
           onClick={() => importYaml.mutate()}
           disabled={importYaml.isPending}
-          className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+          className="shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-paper hover:bg-accent-hover disabled:opacity-50 transition-colors"
         >
-          {importYaml.isPending ? "Importing..." : "Import YAML"}
+          {importYaml.isPending ? "Importing…" : "Import YAML"}
         </button>
       </div>
 
       {importYaml.isSuccess && (
-        <div className="mb-4 rounded bg-green-50 border border-green-200 p-3 text-sm text-green-700">
+        <div className="mb-4 rounded-md bg-ok-muted p-3 text-sm text-ok font-medium">
           Imported {importYaml.data.imported} source(s).
         </div>
       )}
       {importYaml.isError && (
-        <div className="mb-4 rounded bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+        <div className="mb-4 rounded-md bg-err-muted p-3 text-sm text-err">
           Import failed. Check that subscriptions.yaml exists.
         </div>
       )}

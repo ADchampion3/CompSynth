@@ -2,7 +2,6 @@ import { Link } from "react-router-dom";
 import type { ImportantArticleResponse } from "../../api/types";
 import { useUpdateArticleState } from "../../api/hooks";
 import { formatRelativeTime } from "../../lib/format";
-import Badge from "../ui/Badge";
 
 export default function ImportantUnreadList({
   items,
@@ -13,40 +12,40 @@ export default function ImportantUnreadList({
 
   if (items.length === 0) {
     return (
-      <div className="text-sm text-gray-500 py-2">
-        No unread important articles.
-      </div>
+      <>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-3 mb-3">
+          Important Unread
+        </h2>
+        <p className="text-sm text-ink-4">Nothing unread.</p>
+      </>
     );
   }
 
   return (
-    <div className="space-y-2">
-      <h2 className="text-sm font-semibold text-gray-700">
+    <>
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-3 mb-3">
         Important Unread ({items.length})
       </h2>
-      <ul className="divide-y divide-gray-100">
+      <ul className="divide-y divide-rule">
         {items.map(({ article, importance_score }) => (
           <li
             key={article.article_id}
-            className="flex items-start gap-3 py-2"
+            className="flex items-start gap-3 py-3 group"
           >
             <div className="flex-1 min-w-0">
               <Link
                 to={`/articles/${encodeURIComponent(article.article_id)}`}
-                className="text-sm font-medium text-blue-700 hover:underline truncate block"
+                className="font-display text-[0.9375rem] font-medium text-ink hover:text-accent-text transition-colors"
               >
                 {article.title || "(untitled)"}
               </Link>
-              <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+              <div className="flex items-center gap-2 mt-0.5 text-xs text-ink-4">
                 <span>{article.source}</span>
                 <span>{formatRelativeTime(article.published_at ?? article.collected_at)}</span>
-                {article.tags.slice(0, 3).map((tag) => (
-                  <Badge key={tag} label={tag} />
-                ))}
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs text-gray-400">
+            <div className="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              <span className="text-xs text-ink-4 tabular-nums">
                 {importance_score.toFixed(1)}
               </span>
               <button
@@ -57,14 +56,14 @@ export default function ImportantUnreadList({
                   })
                 }
                 disabled={markRead.isPending}
-                className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                className="text-xs text-ink-3 hover:text-ink disabled:opacity-50"
               >
-                Mark Read
+                Read
               </button>
             </div>
           </li>
         ))}
       </ul>
-    </div>
+    </>
   );
 }

@@ -4,11 +4,11 @@ export default function LoadingSkeleton({
   lines?: number;
 }) {
   return (
-    <div className="animate-pulse space-y-2">
+    <div className="animate-pulse space-y-3">
       {Array.from({ length: lines }).map((_, i) => (
         <div
           key={i}
-          className="h-4 bg-gray-200 rounded"
+          className="h-3 bg-paper-3 rounded-sm"
           style={{ width: `${Math.max(40, 100 - i * 15)}%` }}
         />
       ))}
@@ -18,13 +18,13 @@ export default function LoadingSkeleton({
 
 export function SkeletonTable({ rows = 5 }: { rows?: number }) {
   return (
-    <div className="animate-pulse space-y-2">
+    <div className="animate-pulse space-y-3">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex gap-4">
-          <div className="h-4 bg-gray-200 rounded w-1/4" />
-          <div className="h-4 bg-gray-200 rounded w-1/4" />
-          <div className="h-4 bg-gray-200 rounded flex-1" />
-          <div className="h-4 bg-gray-200 rounded w-16" />
+        <div key={i} className="flex gap-6">
+          <div className="h-3 bg-paper-3 rounded-sm w-1/4" />
+          <div className="h-3 bg-paper-3 rounded-sm w-1/6" />
+          <div className="h-3 bg-paper-3 rounded-sm flex-1" />
+          <div className="h-3 bg-paper-3 rounded-sm w-14" />
         </div>
       ))}
     </div>

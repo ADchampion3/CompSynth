@@ -2,7 +2,6 @@ import { useParams, Link } from "react-router-dom";
 import { useArticleDetail, useArticleState } from "../../api/hooks";
 import ErrorCard from "../ui/ErrorCard";
 import LoadingSkeleton from "../ui/LoadingSkeleton";
-import Badge from "../ui/Badge";
 import ArticleHeader from "./ArticleHeader";
 import NotePanel from "./NotePanel";
 import RelatedArticles from "./RelatedArticles";
@@ -20,19 +19,19 @@ export default function ArticleDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 max-w-3xl mx-auto">
+      <div className="p-6 md:p-8 max-w-3xl mx-auto">
         <LoadingSkeleton lines={6} />
       </div>
     );
   }
 
-  if (error) return <ErrorCard error={error} />;
+  if (error) return <div className="p-6 md:p-8 max-w-3xl mx-auto"><ErrorCard error={error} /></div>;
 
   if (!article) {
     return (
-      <div className="p-6 max-w-3xl mx-auto text-center text-gray-500">
+      <div className="p-6 md:p-8 max-w-3xl mx-auto text-center text-ink-3">
         Article not found.
-        <Link to="/inbox" className="ml-2 text-blue-600 hover:underline">
+        <Link to="/inbox" className="ml-2 text-accent-text hover:underline">
           Back to Inbox
         </Link>
       </div>
@@ -40,51 +39,60 @@ export default function ArticleDetailPage() {
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <article className="p-6 md:p-8 max-w-3xl mx-auto">
       <Link
         to="/inbox"
-        className="text-sm text-gray-500 hover:text-gray-700"
+        className="text-xs font-medium uppercase tracking-wider text-ink-4 hover:text-ink transition-colors"
       >
-        ← Back to Inbox
+        ← Inbox
       </Link>
 
       <ArticleHeader article={article} state={state} />
 
       {/* Tags */}
       {article.tags.length > 0 && (
-        <div className="flex gap-1">
+        <div className="flex gap-1.5 mt-5">
           {article.tags.map((t) => (
-            <Badge key={t} label={t} />
+            <span
+              key={t}
+              className="rounded-sm bg-paper-3 px-2 py-0.5 text-[0.6875rem] font-medium text-ink-3"
+            >
+              {t}
+            </span>
           ))}
         </div>
       )}
 
       {/* Summary */}
       {article.summary && (
-        <div className="rounded border border-gray-200 bg-gray-50 p-4">
-          <h3 className="text-xs font-semibold text-gray-500 mb-2">Summary</h3>
-          <p className="text-sm text-gray-800 whitespace-pre-wrap">
+        <section className="mt-8 rounded-md bg-paper-2 p-5">
+          <h3 className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 mb-2">
+            Summary
+          </h3>
+          <p className="text-sm text-ink-2 leading-relaxed whitespace-pre-wrap font-display">
             {article.summary}
           </p>
-        </div>
+        </section>
       )}
 
       {/* Content */}
       {article.content ? (
-        <div>
-          <h3 className="text-xs font-semibold text-gray-500 mb-2">Content</h3>
-          <div className="text-sm text-gray-800 whitespace-pre-wrap">
+        <section className="mt-8">
+          <h3 className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 mb-3">
+            Full Text
+          </h3>
+          <div className="text-[0.9375rem] text-ink-2 leading-relaxed whitespace-pre-wrap max-w-none font-display">
             {article.content}
           </div>
-        </div>
+        </section>
       ) : (
-        <p className="text-sm text-gray-400">No full content available.</p>
+        <p className="mt-8 text-sm text-ink-4">No full content available.</p>
       )}
 
-      <hr className="border-gray-200" />
+      <hr className="border-rule my-8" />
 
       <RelatedArticles articleId={article.article_id} />
       <NotePanel articleId={article.article_id} state={state} />
-    </div>
+    </article>
   );
 }

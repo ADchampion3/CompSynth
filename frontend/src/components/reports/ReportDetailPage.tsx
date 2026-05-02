@@ -12,27 +12,27 @@ export default function ReportDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 max-w-4xl mx-auto">
+      <div className="p-6 md:p-8 max-w-4xl mx-auto">
         <LoadingSkeleton lines={10} />
       </div>
     );
   }
 
-  if (error) return <ErrorCard error={error} />;
+  if (error) return <div className="p-6 md:p-8 max-w-4xl mx-auto"><ErrorCard error={error} /></div>;
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 md:p-8 max-w-4xl mx-auto">
       <Link
         to="/reports"
-        className="text-sm text-gray-500 hover:text-gray-700"
+        className="text-xs font-medium uppercase tracking-wider text-ink-4 hover:text-ink transition-colors"
       >
-        ← Back to Reports
+        ← Reports
       </Link>
-      <h1 className="text-lg font-bold mt-3 mb-4">
+      <h1 className="font-display text-2xl md:text-3xl font-bold text-ink mt-4 mb-6 leading-tight">
         {data?.title ?? "Report"}
       </h1>
       {data?.markdown ? (
-        <article className="prose prose-sm prose-gray max-w-none">
+        <article className="prose prose-gray max-w-none">
           <Markdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeSanitize]}
@@ -41,7 +41,7 @@ export default function ReportDetailPage() {
           </Markdown>
         </article>
       ) : (
-        <p className="text-sm text-gray-400">No content available.</p>
+        <p className="text-sm text-ink-4">No content available.</p>
       )}
     </div>
   );
