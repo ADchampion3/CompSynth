@@ -48,6 +48,7 @@ class ArticleService:
         tag: str | None = None,
         liked: bool | None = None,
         query: str | None = None,
+        read_state: str | None = None,
     ) -> ArticlePage:
         safe_limit = max(1, min(limit, 100))
         safe_offset = max(0, offset)
@@ -60,14 +61,21 @@ class ArticleService:
                 tag=tag,
                 liked=liked,
                 query=normalized_query,
+                read_state=read_state,
             ),
-            total=self._repository.count(source=source, tag=tag, liked=liked, query=normalized_query),
+            total=self._repository.count(source=source, tag=tag, liked=liked, query=normalized_query, read_state=read_state),
             limit=safe_limit,
             offset=safe_offset,
         )
 
     def get_article(self, article_id: str) -> ContentItem | None:
         return self._repository.get_by_id(article_id)
+
+    def batch_get_read_states(self, article_ids: list[str]) -> dict[str, str]:
+        """Batch-fetch read states for given article IDs."""
+        if self._state_repository is None or not article_ids:
+            return {}
+        return self._state_repository.get_read_states(article_ids)
 
     def set_liked(self, article_id: str, liked: bool) -> bool:
         return self._repository.set_liked_by_id(article_id, liked)

@@ -29,6 +29,7 @@ export interface ArticleResponse {
   published_at: string | null;
   collected_at: string | null;
   liked: number;
+  read_state: ReadState | null;
 }
 
 export interface ArticleStateResponse {

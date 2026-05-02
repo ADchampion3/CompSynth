@@ -36,6 +36,7 @@ export interface ArticleFilters {
   tag?: string;
   liked?: boolean;
   query?: string;
+  read_state?: string;
 }
 
 export function useArticles(filters: ArticleFilters) {
@@ -86,7 +87,28 @@ export function useUpdateArticleState() {
         { article_id: articleId },
         { read_state: readState } satisfies ArticleStateUpdate,
       ),
-    onSuccess: () => {
+    onMutate: async ({ articleId, readState }) => {
+      await qc.cancelQueries({ queryKey: ["articles"] });
+      const snapshots = qc.getQueriesData<ArticlePageResponse>({ queryKey: ["articles"] });
+      for (const [key, old] of snapshots) {
+        if (!old) continue;
+        qc.setQueryData(key, {
+          ...old,
+          items: old.items.map((a) =>
+            a.article_id === articleId ? { ...a, read_state: readState } : a,
+          ),
+        });
+      }
+      return { snapshots };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.snapshots) {
+        for (const [key, data] of ctx.snapshots) {
+          qc.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["articles"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
@@ -108,11 +130,29 @@ export function useUpdateArticleLike() {
         { article_id: articleId },
         { liked } satisfies ArticleLikeUpdate,
       ),
-    onSuccess: (_data, variables) => {
+    onMutate: async ({ articleId, liked }) => {
+      await qc.cancelQueries({ queryKey: ["articles"] });
+      const snapshots = qc.getQueriesData<ArticlePageResponse>({ queryKey: ["articles"] });
+      for (const [key, old] of snapshots) {
+        if (!old) continue;
+        qc.setQueryData(key, {
+          ...old,
+          items: old.items.map((a) =>
+            a.article_id === articleId ? { ...a, liked: liked ? 1 : 0 } : a,
+          ),
+        });
+      }
+      return { snapshots };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.snapshots) {
+        for (const [key, data] of ctx.snapshots) {
+          qc.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["articles"] });
-      qc.invalidateQueries({
-        queryKey: ["articles", "detail", variables.articleId],
-      });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });

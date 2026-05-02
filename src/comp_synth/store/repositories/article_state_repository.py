@@ -37,6 +37,15 @@ class ArticleStateRepository:
         ).scalar_one_or_none()
         return self._to_domain(row) if row else None
 
+    def get_read_states(self, article_ids: list[str]) -> dict[str, str]:
+        """Batch-fetch read states. Returns {article_id: read_state} for rows that exist."""
+        if not article_ids:
+            return {}
+        rows = self._session.execute(
+            select(ArticleStateModel).where(ArticleStateModel.article_id.in_(article_ids))
+        ).scalars().all()
+        return {row.article_id: row.read_state for row in rows}
+
     def get_or_create(self, article_id: str) -> ArticleState:
         row = self._get_or_create_row(article_id)
         self._session.flush()

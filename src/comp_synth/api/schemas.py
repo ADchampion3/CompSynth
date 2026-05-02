@@ -37,6 +37,7 @@ class ArticleResponse(BaseModel):
     published_at: datetime | None = None
     collected_at: datetime | None = None
     liked: int = 0
+    read_state: ReadState | None = None
 
 
 class ArticleStateResponse(BaseModel):

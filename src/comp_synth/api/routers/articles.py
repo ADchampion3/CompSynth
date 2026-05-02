@@ -26,13 +26,17 @@ def list_articles(
     tag: str | None = None,
     liked: bool | None = None,
     query: str | None = None,
+    read_state: str | None = None,
     service: ArticleService = Depends(get_article_service),
 ):
     page = service.list_articles(
-        limit=limit, offset=offset, source=source, tag=tag, liked=liked, query=query,
+        limit=limit, offset=offset, source=source, tag=tag,
+        liked=liked, query=query, read_state=read_state,
     )
+    article_ids = [item.id for item in page.items]
+    states = service.batch_get_read_states(article_ids)
     return ArticlePageResponse(
-        items=[content_item_to_response(item) for item in page.items],
+        items=[content_item_to_response(item, read_state=states.get(item.id, "unread")) for item in page.items],
         total=page.total,
         limit=page.limit,
         offset=page.offset,

@@ -34,6 +34,7 @@ export default function InboxPage() {
     tag,
     liked,
     query,
+    read_state: readState,
   });
 
   function setFilter(key: string, value: string | undefined) {

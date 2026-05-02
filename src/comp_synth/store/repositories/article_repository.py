@@ -8,7 +8,7 @@ from sqlalchemy import cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from comp_synth.schema.content_item import ContentItem
-from comp_synth.store.models import ArticleModel
+from comp_synth.store.models import ArticleModel, ArticleStateModel
 
 
 class ArticleRepository:
@@ -91,9 +91,10 @@ class ArticleRepository:
         tag: str | None = None,
         liked: bool | None = None,
         query: str | None = None,
+        read_state: str | None = None,
     ) -> list[ContentItem]:
         """List articles ordered by crawl time, newest first."""
-        stmt = self._filtered_select(source=source, tag=tag, liked=liked, query=query)
+        stmt = self._filtered_select(source=source, tag=tag, liked=liked, query=query, read_state=read_state)
         stmt = stmt.order_by(ArticleModel.crawled_at.desc(), ArticleModel.article_id.asc()).limit(limit).offset(offset)
         rows = self._session.execute(stmt).scalars().all()
         return [self._to_domain(row) for row in rows]
@@ -104,6 +105,7 @@ class ArticleRepository:
         tag: str | None = None,
         liked: bool | None = None,
         query: str | None = None,
+        read_state: str | None = None,
     ) -> int:
         """Count stored articles."""
         stmt = self._filtered_select(
@@ -112,6 +114,7 @@ class ArticleRepository:
             tag=tag,
             liked=liked,
             query=query,
+            read_state=read_state,
         )
         return int(self._session.execute(stmt).scalar_one())
 
@@ -126,6 +129,7 @@ class ArticleRepository:
         tag: str | None = None,
         liked: bool | None = None,
         query: str | None = None,
+        read_state: str | None = None,
     ):
         if stmt is None:
             stmt = select(ArticleModel)
@@ -154,6 +158,20 @@ class ArticleRepository:
                     ArticleModel.content.ilike(pattern, escape="\\"),
                 )
             )
+        if read_state is not None:
+            stmt = stmt.outerjoin(
+                ArticleStateModel,
+                ArticleModel.article_id == ArticleStateModel.article_id,
+            )
+            if read_state == "unread":
+                stmt = stmt.where(
+                    or_(
+                        ArticleStateModel.read_state == "unread",
+                        ArticleStateModel.article_id.is_(None),
+                    )
+                )
+            else:
+                stmt = stmt.where(ArticleStateModel.read_state == read_state)
         return stmt
 
     def is_crawled(self, source: str, url: str) -> bool:

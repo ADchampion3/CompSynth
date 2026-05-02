@@ -77,21 +77,23 @@ export default function FilterRail({
       {/* Read state */}
       <div>
         <label className="text-xs font-medium text-gray-500">State</label>
-        <div className="mt-1 space-y-1">
-          {READ_STATES.map((s) => (
-            <label key={s.value} className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="readState"
-                checked={readState === s.value || (!readState && s.value === "")}
-                onChange={() =>
-                  onFilterChange("readState", s.value || undefined)
-                }
-                className="text-xs"
-              />
-              {s.label}
-            </label>
-          ))}
+        <div className="mt-1 flex flex-wrap gap-1">
+          {READ_STATES.map((s) => {
+            const active = readState === s.value || (!readState && s.value === "");
+            return (
+              <button
+                key={s.value}
+                onClick={() => onFilterChange("readState", s.value || undefined)}
+                className={`rounded px-2 py-0.5 text-xs ${
+                  active
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                {s.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -103,6 +105,7 @@ export default function FilterRail({
           onChange={(e) =>
             onFilterChange("liked", e.target.checked ? "true" : undefined)
           }
+          className="accent-blue-600"
         />
         Liked only
       </label>
