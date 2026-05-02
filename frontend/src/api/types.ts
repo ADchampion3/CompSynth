@@ -89,6 +89,22 @@ export interface SourceResponse {
   javascript: boolean;
 }
 
+export interface SourceCreateRequest {
+  source_type: "rss" | "web" | "javascript";
+  url: string;
+  name?: string;
+  enabled?: boolean;
+  javascript?: boolean;
+}
+
+export interface SourceUpdateRequest {
+  url?: string;
+  name?: string;
+  source_type?: "rss" | "web" | "javascript";
+  enabled?: boolean;
+  javascript?: boolean;
+}
+
 export interface CrawlRunResponse {
   run_id: string;
   scope: string;

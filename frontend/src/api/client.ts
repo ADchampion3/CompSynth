@@ -89,3 +89,32 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   });
   return handleResponse<T>(response);
 }
+
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  const url = new URL(BASE + path, window.location.origin);
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<T>(response);
+}
+
+export async function apiDelete(path: string): Promise<void> {
+  const url = new URL(BASE + path, window.location.origin);
+  const response = await fetch(url, { method: "DELETE" });
+  if (!response.ok) {
+    const text = await response.text();
+    try {
+      const detail = JSON.parse(text) as ErrorDetail;
+      throw new ApiError(detail);
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      throw new ApiError({
+        problem: `Delete failed (${response.status})`,
+        cause: response.statusText,
+        fix: "Please try again later.",
+      });
+    }
+  }
+}

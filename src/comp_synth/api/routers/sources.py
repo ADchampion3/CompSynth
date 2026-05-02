@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from comp_synth.api.deps import get_source_service
-from comp_synth.api.schemas import ErrorDetail, SourceResponse
+from comp_synth.api.schemas import (
+    ErrorDetail,
+    SourceCreateRequest,
+    SourceResponse,
+    SourceUpdateRequest,
+)
 from comp_synth.services.source_service import SourceService
 
 router = APIRouter(tags=["sources"])
@@ -26,6 +31,43 @@ def _source_to_response(source) -> SourceResponse:
 def list_sources(service: SourceService = Depends(get_source_service)):
     sources = service.list_sources()
     return [_source_to_response(s) for s in sources]
+
+
+@router.post("/sources", response_model=SourceResponse, status_code=201)
+def create_source(body: SourceCreateRequest, service: SourceService = Depends(get_source_service)):
+    try:
+        source = service.create_source(
+            source_type=body.source_type,
+            url=body.url,
+            name=body.name,
+            enabled=body.enabled,
+            javascript=body.javascript,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _source_to_response(source)
+
+
+@router.put("/sources/{source_key}", response_model=SourceResponse)
+def update_source(
+    source_key: str,
+    body: SourceUpdateRequest,
+    service: SourceService = Depends(get_source_service),
+):
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    source = service.update_source(source_key, **fields)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return _source_to_response(source)
+
+
+@router.delete("/sources/{source_key}", status_code=204)
+def delete_source(source_key: str, service: SourceService = Depends(get_source_service)):
+    ok = service.delete_source(source_key)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Source not found")
 
 
 @router.post("/sources/import-yaml")

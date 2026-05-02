@@ -29,6 +29,49 @@ class SourceService:
 
         return self._read_yaml_sources(self._subscriptions_path)
 
+    def create_source(self, source_type: str, url: str, name: str | None = None, enabled: bool = True, javascript: bool = False) -> SourceConfig:
+        """Create a new managed source."""
+        self._require_db()
+        source = SourceConfig(
+            source_key=name or url,
+            source_type=source_type,
+            url=url,
+            name=name,
+            enabled=enabled,
+            javascript=javascript,
+            raw_config={"type": source_type, "url": url, "enabled": enabled, "javascript": javascript, **({"name": name} if name else {})},
+        )
+        self._with_source_repository(lambda repo: repo.save(source))
+        return source
+
+    def update_source(self, source_key: str, **fields) -> SourceConfig | None:
+        """Update fields on an existing source. Returns None if not found."""
+        self._require_db()
+        return self._with_source_repository(lambda repo: self._update_in_repo(repo, source_key, fields))
+
+    def _update_in_repo(self, repo, source_key: str, fields: dict) -> SourceConfig | None:
+        existing = repo.get(source_key)
+        if existing is None:
+            return None
+        raw = dict(existing.raw_config or {})
+        updated = SourceConfig(
+            source_key=source_key,
+            source_type=fields.get("source_type", existing.source_type),
+            url=fields.get("url", existing.url),
+            name=fields.get("name", existing.name),
+            enabled=fields.get("enabled", existing.enabled),
+            selectors=existing.selectors,
+            javascript=fields.get("javascript", existing.javascript),
+            raw_config=raw,
+        )
+        repo.save(updated)
+        return updated
+
+    def delete_source(self, source_key: str) -> bool:
+        """Archive (soft-delete) a source."""
+        self._require_db()
+        return self._with_source_repository(lambda repo: repo.archive(source_key))
+
     def import_yaml(self, subscriptions_path: Path | None = None) -> list[SourceConfig]:
         """Import YAML subscriptions into the managed sources database."""
         self._require_db()
@@ -43,8 +86,10 @@ class SourceService:
         data = {"sources": [self._to_yaml_source(source) for source in sources]}
         target = Path(output_path or self._subscriptions_path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("w", encoding="utf-8") as file:
+        tmp = target.with_suffix(".tmp")
+        with tmp.open("w", encoding="utf-8") as file:
             yaml.safe_dump(data, file, allow_unicode=True, sort_keys=False)
+        tmp.replace(target)
         return target
 
     def _init_db(self) -> None:
@@ -66,7 +111,7 @@ class SourceService:
             return result
 
     def _has_managed_sources(self) -> bool:
-        return bool(self._with_source_repository(lambda repo: repo.count()))
+        return bool(self._with_source_repository(lambda repo: repo.count(include_archived=True)))
 
     def _read_yaml_sources(self, path: Path) -> list[SourceConfig]:
         if not path.exists():

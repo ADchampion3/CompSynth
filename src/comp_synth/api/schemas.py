@@ -102,6 +102,25 @@ class TagVocabularyResponse(BaseModel):
     tags: list[str]
 
 
+# --- Source request schemas ---
+
+
+class SourceCreateRequest(BaseModel):
+    source_type: SourceType = "web"
+    url: str = Field(..., min_length=1)
+    name: str | None = None
+    enabled: bool = True
+    javascript: bool = False
+
+
+class SourceUpdateRequest(BaseModel):
+    url: str | None = None
+    name: str | None = None
+    source_type: SourceType | None = None
+    enabled: bool | None = None
+    javascript: bool | None = None
+
+
 # --- Source schemas ---
 
 

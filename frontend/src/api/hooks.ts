@@ -3,7 +3,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { apiGet, apiPatch, apiPost } from "./client";
+import { apiGet, apiPatch, apiPost, apiPut, apiDelete } from "./client";
 import type {
   ArticleLikeUpdate,
   ArticleNoteUpdate,
@@ -17,7 +17,9 @@ import type {
   ReadState,
   ReportDetailResponse,
   ReportSummaryResponse,
+  SourceCreateRequest,
   SourceResponse,
+  SourceUpdateRequest,
   TagVocabularyResponse,
   TagsUpdateRequest,
 } from "./types";
@@ -208,6 +210,39 @@ export function useImportYaml() {
   return useMutation({
     mutationFn: () =>
       apiPost<{ imported: number }>("/sources/import-yaml"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sources"] });
+    },
+  });
+}
+
+export function useCreateSource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SourceCreateRequest) =>
+      apiPost<SourceResponse>("/sources", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sources"] });
+    },
+  });
+}
+
+export function useUpdateSource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, ...body }: SourceUpdateRequest & { key: string }) =>
+      apiPut<SourceResponse>(`/sources/${encodeURIComponent(key)}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sources"] });
+    },
+  });
+}
+
+export function useDeleteSource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) =>
+      apiDelete(`/sources/${encodeURIComponent(key)}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sources"] });
     },

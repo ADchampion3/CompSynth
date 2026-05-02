@@ -68,6 +68,19 @@ class SourceRepository:
             )
         )
 
+    def get(self, source_key: str) -> SourceConfig | None:
+        """Get a single source by key."""
+        row = self._session.get(SourceModel, source_key)
+        return self._to_domain(row) if row else None
+
+    def archive(self, source_key: str, now: datetime | None = None) -> bool:
+        """Soft-delete a source by setting archived_at. Returns False if not found."""
+        row = self._session.get(SourceModel, source_key)
+        if row is None:
+            return False
+        row.archived_at = now or datetime.now()
+        return True
+
     def _to_domain(self, row: SourceModel) -> SourceConfig:
         raw_config = dict(row.raw_config) if row.raw_config else {}
         raw_config.update(

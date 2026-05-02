@@ -122,3 +122,51 @@ sources:
     ]
     assert sources[1].enabled is False
     assert sources[1].selectors == [{"item_container": "article", "url": "a"}]
+
+
+# --- Source CRUD ---
+
+
+@pytest.fixture()
+def db_path(tmp_path):
+    return tmp_path / "sources.db"
+
+
+def test_create_source(db_path):
+    service = SourceService(subscriptions_path=db_path.parent / "sub.yaml", source_db_path=db_path)
+    source = service.create_source(source_type="rss", url="https://example.test/feed", name="Test")
+    assert source.source_key == "Test"
+    assert source.url == "https://example.test/feed"
+    assert source.source_type == "rss"
+    assert source.enabled is True
+
+    sources = service.list_sources()
+    assert len(sources) == 1
+    assert sources[0].source_key == "Test"
+
+
+def test_update_source(db_path):
+    service = SourceService(subscriptions_path=db_path.parent / "sub.yaml", source_db_path=db_path)
+    service.create_source(source_type="web", url="https://example.test/", name="Old")
+    updated = service.update_source("Old", name="New", enabled=False)
+    assert updated is not None
+    assert updated.name == "New"
+    assert updated.enabled is False
+
+
+def test_update_source_not_found(db_path):
+    service = SourceService(subscriptions_path=db_path.parent / "sub.yaml", source_db_path=db_path)
+    result = service.update_source("nonexistent", name="New")
+    assert result is None
+
+
+def test_delete_source(db_path):
+    service = SourceService(subscriptions_path=db_path.parent / "sub.yaml", source_db_path=db_path)
+    service.create_source(source_type="web", url="https://example.test/", name="ToDelete")
+    assert service.delete_source("ToDelete") is True
+    assert service.list_sources() == []
+
+
+def test_delete_source_not_found(db_path):
+    service = SourceService(subscriptions_path=db_path.parent / "sub.yaml", source_db_path=db_path)
+    assert service.delete_source("nonexistent") is False

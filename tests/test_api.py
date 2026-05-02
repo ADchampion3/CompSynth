@@ -346,6 +346,53 @@ class TestSourcesAPI:
         assert export_resp.status_code == 200
         assert "sources:" in export_resp.text
 
+    def test_create_source(self, output_dir, subscriptions_yaml, tmp_path):
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
+        client.post("/api/sources/import-yaml")
+        resp = client.post(
+            "/api/sources",
+            json={"source_type": "rss", "url": "https://new.test/feed", "name": "New Source"},
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["source_key"] == "New Source"
+        assert data["source_type"] == "rss"
+
+    def test_update_source(self, output_dir, subscriptions_yaml, tmp_path):
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
+        client.post("/api/sources/import-yaml")
+        resp = client.put(
+            "/api/sources/test-source",
+            json={"name": "Renamed", "enabled": False},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Renamed"
+        assert resp.json()["enabled"] is False
+
+    def test_update_source_not_found(self, output_dir, subscriptions_yaml, tmp_path):
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
+        resp = client.put("/api/sources/nonexistent", json={"name": "X"})
+        assert resp.status_code == 404
+
+    def test_delete_source(self, output_dir, subscriptions_yaml, tmp_path):
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
+        client.post("/api/sources/import-yaml")
+        resp = client.delete("/api/sources/test-source")
+        assert resp.status_code == 204
+        # Verify it's gone from list
+        list_resp = client.get("/api/sources")
+        assert all(s["source_key"] != "test-source" for s in list_resp.json())
+
+    def test_delete_source_not_found(self, output_dir, subscriptions_yaml, tmp_path):
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
+        resp = client.delete("/api/sources/nonexistent")
+        assert resp.status_code == 404
+
 
 # --- Crawls ---
 
