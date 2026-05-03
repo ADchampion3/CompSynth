@@ -93,9 +93,11 @@ export function useUpdateArticleState() {
       ),
     onMutate: async ({ articleId, readState }) => {
       await qc.cancelQueries({ queryKey: ["articles"] });
-      const snapshots = qc.getQueriesData<ArticlePageResponse>({ queryKey: ["articles"] });
-      for (const [key, old] of snapshots) {
-        if (!old) continue;
+      const allData = qc.getQueriesData({ queryKey: ["articles"] });
+      const snapshots: [unknown, ArticlePageResponse][] = [];
+      for (const [key, old] of allData) {
+        if (!old || !("items" in old)) continue;
+        snapshots.push([key, old]);
         qc.setQueryData(key, {
           ...old,
           items: old.items.map((a) =>
@@ -136,9 +138,11 @@ export function useUpdateArticleLike() {
       ),
     onMutate: async ({ articleId, liked }) => {
       await qc.cancelQueries({ queryKey: ["articles"] });
-      const snapshots = qc.getQueriesData<ArticlePageResponse>({ queryKey: ["articles"] });
-      for (const [key, old] of snapshots) {
-        if (!old) continue;
+      const allData = qc.getQueriesData({ queryKey: ["articles"] });
+      const snapshots: [unknown, ArticlePageResponse][] = [];
+      for (const [key, old] of allData) {
+        if (!old || !("items" in old)) continue;
+        snapshots.push([key, old]);
         qc.setQueryData(key, {
           ...old,
           items: old.items.map((a) =>
@@ -325,9 +329,11 @@ export function useUpdateArticleTags() {
       await qc.cancelQueries({ queryKey: ["tags"] });
 
       // Update articles list cache
-      const pageSnapshots = qc.getQueriesData<ArticlePageResponse>({ queryKey: ["articles"] });
-      for (const [key, old] of pageSnapshots) {
-        if (!old) continue;
+      const allData = qc.getQueriesData({ queryKey: ["articles"] });
+      const pageSnapshots: [unknown, ArticlePageResponse][] = [];
+      for (const [key, old] of allData) {
+        if (!old || !("items" in old)) continue;
+        pageSnapshots.push([key, old]);
         qc.setQueryData(key, {
           ...old,
           items: old.items.map((a) =>

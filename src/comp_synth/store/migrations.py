@@ -9,6 +9,7 @@ from comp_synth.store.models import Base
 
 CURRENT_SCHEMA_MIGRATION_ID = "0001_create_current_schema"
 TAGS_COLUMN_MIGRATION_ID = "0002_add_tags_column"
+BACKFILL_MIGRATION_ID = "0003_backfill_source_key_and_tags"
 
 _metadata = MetaData()
 
@@ -51,6 +52,36 @@ def _run_0002_add_tags_column(conn) -> None:
     )
 
 
+def _run_0003_backfill_source_key_and_tags(conn) -> None:
+    if _migration_applied(conn, BACKFILL_MIGRATION_ID):
+        return
+    # Backfill tags from extra_metadata.tags where tags column is empty
+    conn.execute(text(
+        "UPDATE articles SET tags = json_extract(extra_metadata, '$.tags') "
+        "WHERE (tags IS NULL OR tags = '[]' OR tags LIKE '%其他%') "
+        "AND json_extract(extra_metadata, '$.tags') IS NOT NULL "
+        "AND json_array_length(json_extract(extra_metadata, '$.tags')) > 0"
+    ))
+    # Backfill source_key from sources table by matching URL prefix.
+    # Use SUBSTR comparison instead of LIKE to avoid wildcard interpretation
+    # of '_' and '%' in source URLs.
+    conn.execute(text(
+        "UPDATE articles SET extra_metadata = json_set(extra_metadata, '$.source_key', "
+        "  (SELECT s.source_key FROM sources s "
+        "   WHERE SUBSTR(articles.url, 1, LENGTH(s.url)) = s.url "
+        "   LIMIT 1)) "
+        "WHERE json_extract(extra_metadata, '$.source_key') IS NULL "
+        "AND EXISTS (SELECT 1 FROM sources s "
+        "   WHERE SUBSTR(articles.url, 1, LENGTH(s.url)) = s.url)"
+    ))
+    conn.execute(
+        insert(schema_migrations).values(
+            migration_id=BACKFILL_MIGRATION_ID,
+            applied_at=datetime.now(),
+        )
+    )
+
+
 def bootstrap_database(engine: Engine) -> None:
     """Create current tables and record the baseline schema migration."""
     Base.metadata.create_all(engine)
@@ -64,3 +95,4 @@ def bootstrap_database(engine: Engine) -> None:
                 )
             )
         _run_0002_add_tags_column(conn)
+        _run_0003_backfill_source_key_and_tags(conn)

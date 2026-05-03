@@ -87,6 +87,11 @@ export interface SourceResponse {
   enabled: boolean;
   selectors: Record<string, string>[] | null;
   javascript: boolean;
+  crawl_status: SourceHealthStatus | null;
+  last_crawled_at: string | null;
+  last_new_item_count: number | null;
+  recent_zero_days: number | null;
+  last_error: string | null;
 }
 
 export interface SourceCreateRequest {

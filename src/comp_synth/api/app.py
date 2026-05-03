@@ -14,8 +14,22 @@ from comp_synth.api.schemas import ErrorDetail
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from comp_synth.api.deps import _init_db, get_settings
+    from comp_synth.services.source_service import SourceService
 
-    _init_db(get_settings())
+    settings = get_settings()
+    _init_db(settings)
+
+    # 启动时以 YAML 为准，全量同步到 DB
+    try:
+        svc = SourceService(
+            subscriptions_path=settings.subscriptions_path,
+            source_db_path=settings.crawl_db_path,
+        )
+        svc.import_yaml()
+    except Exception as exc:
+        from loguru import logger
+        logger.warning("启动时 YAML → DB 同步失败: {error}", error=exc)
+
     yield
 
 

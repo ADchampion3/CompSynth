@@ -138,6 +138,11 @@ class SourceResponse(BaseModel):
     enabled: bool = True
     selectors: list[dict[str, str]] | None = None
     javascript: bool = False
+    crawl_status: SourceHealthStatus | None = None
+    last_crawled_at: datetime | None = None
+    last_new_item_count: int | None = None
+    recent_zero_days: int | None = None
+    last_error: str | None = None
 
 
 # --- Crawl schemas ---

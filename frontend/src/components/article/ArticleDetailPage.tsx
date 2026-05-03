@@ -3,6 +3,7 @@ import { useArticleDetail, useArticleState } from "../../api/hooks";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import ErrorCard from "../ui/ErrorCard";
 import LoadingSkeleton from "../ui/LoadingSkeleton";
+import ArticleContent from "./ArticleContent";
 import ArticleHeader from "./ArticleHeader";
 import NotePanel from "./NotePanel";
 import RelatedArticles from "./RelatedArticles";
@@ -79,18 +80,7 @@ export default function ArticleDetailPage() {
       )}
 
       {/* Content */}
-      {article.content ? (
-        <section className="mt-8">
-          <h3 className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 mb-3">
-            Full Text
-          </h3>
-          <div className="text-[0.9375rem] text-ink-2 leading-relaxed whitespace-pre-wrap max-w-none font-display">
-            {article.content}
-          </div>
-        </section>
-      ) : (
-        <p className="mt-8 text-sm text-ink-4">No full content available.</p>
-      )}
+      <ArticleContent url={article.url} content={article.content ?? ""} />
 
       <hr className="border-rule my-8" />
 

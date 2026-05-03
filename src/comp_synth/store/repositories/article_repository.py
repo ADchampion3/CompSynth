@@ -144,10 +144,18 @@ class ArticleRepository:
         if stmt is None:
             stmt = select(ArticleModel)
         if source:
-            stmt = stmt.where(ArticleModel.source == source)
+            stmt = stmt.where(
+                or_(
+                    ArticleModel.source == source,
+                    text("json_extract(extra_metadata, '$.source_key') = :source_key").bindparams(source_key=source),
+                )
+            )
         if tag:
             stmt = stmt.where(
-                text("EXISTS (SELECT 1 FROM json_each(tags) WHERE value = :tag)").bindparams(tag=tag)
+                or_(
+                    text("EXISTS (SELECT 1 FROM json_each(tags) WHERE value = :tag)").bindparams(tag=tag),
+                    text("EXISTS (SELECT 1 FROM json_each(json_extract(extra_metadata, '$.tags')) WHERE value = :tag2)").bindparams(tag2=tag),
+                )
             )
         if liked is not None:
             stmt = stmt.where(ArticleModel.liked == (1 if liked else 0))
@@ -228,7 +236,13 @@ class ArticleRepository:
     def get_tag_vocabulary(self) -> list[str]:
         """Get distinct tags across all articles."""
         rows = self._session.execute(
-            text("SELECT DISTINCT j.value FROM articles a, json_each(a.tags) j ORDER BY j.value")
+            text(
+                "SELECT DISTINCT value FROM ("
+                "  SELECT j.value FROM articles a, json_each(a.tags) j "
+                "  UNION "
+                "  SELECT j.value FROM articles a, json_each(json_extract(a.extra_metadata, '$.tags')) j"
+                ") ORDER BY value"
+            )
         ).scalars().all()
         return list(rows)
 

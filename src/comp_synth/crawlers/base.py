@@ -1,7 +1,9 @@
 import asyncio
+import time
 from abc import ABC, abstractmethod
 
 import httpx
+from loguru import logger
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -13,6 +15,17 @@ from comp_synth.config import settings
 from comp_synth.schema.content_item import ContentItem
 
 
+def _log_retry(retry_state) -> None:
+    """tenacity before_sleep 回调: 重试前记录日志."""
+    exception = retry_state.outcome.exception() if retry_state.outcome else None
+    logger.warning(
+        "HTTP GET 重试 {attempt}/3, 等待 {wait:.1f}s: {error}",
+        attempt=retry_state.attempt_number,
+        wait=retry_state.next_action.sleep if retry_state.next_action else 0,
+        error=exception,
+    )
+
+
 class BaseCrawler(ABC):
     """爬虫基类，定义统一的采集接口"""
 
@@ -21,12 +34,17 @@ class BaseCrawler(ABC):
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.RequestError)),
         reraise=True,
+        before_sleep=_log_retry,
     )
     async def _fetch_html(self, url: str) -> str:
         """获取网页 HTML（带重试机制）"""
+        logger.debug("HTTP GET {url} (timeout={timeout}s)", url=url, timeout=settings.request_timeout)
+        start = time.monotonic()
         async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
             response = await client.get(url)
             response.raise_for_status()
+            elapsed = time.monotonic() - start
+            logger.debug("HTTP GET {url} → {status} ({elapsed:.1f}s, {size} bytes)", url=url, status=response.status_code, elapsed=elapsed, size=len(response.text))
             return response.text
 
     def _is_summary_enough(self, summary: str) -> bool:
@@ -44,6 +62,8 @@ class BaseCrawler(ABC):
         Returns:
             渲染后的完整 HTML
         """
+        logger.info("Browser GET {url} (wait={wait}s, timeout=60s)", url=url, wait=wait_time)
+        start = time.monotonic()
 
         from DrissionPage import ChromiumPage
 
@@ -61,6 +81,8 @@ class BaseCrawler(ABC):
             loop.run_in_executor(None, _sync_fetch),
             timeout=60,
         )
+        elapsed = time.monotonic() - start
+        logger.info("Browser GET {url} → {size} bytes ({elapsed:.1f}s)", url=url, size=len(html), elapsed=elapsed)
         return html
 
     @abstractmethod

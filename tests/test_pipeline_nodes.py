@@ -119,39 +119,37 @@ def test_run_pipeline_ends_when_no_new_items_and_no_digest(monkeypatch):
     assert result["publish_results"] == {}
 
 
-def test_fetch_sources_missing_config_returns_actionable_error(tmp_path, monkeypatch):
-    missing = tmp_path / "subscriptions.yaml"
-    monkeypatch.setattr("comp_synth.config.settings.subscriptions_path", missing)
+def test_fetch_sources_no_enabled_sources_returns_error(tmp_path, monkeypatch):
+    monkeypatch.setattr("comp_synth.config.settings.subscriptions_path", tmp_path / "subscriptions.yaml")
+    monkeypatch.setattr("comp_synth.config.settings.crawl_db_path", tmp_path / "crawl.db")
 
     result = asyncio.run(fetch_sources({}))
 
     assert result["raw_items"] == []
-    assert "subscriptions.example.yaml" in result["errors"][0]
-
-
-def test_fetch_sources_empty_config_skips_without_attribute_error(tmp_path, monkeypatch):
-    empty = tmp_path / "subscriptions.yaml"
-    empty.write_text("", encoding="utf-8")
-    monkeypatch.setattr("comp_synth.config.settings.subscriptions_path", empty)
-
-    result = asyncio.run(fetch_sources({}))
-
-    assert result["raw_items"] == []
-    assert result["errors"] == ["No sources configured in subscriptions.yaml"]
+    assert result["errors"] == ["No enabled sources configured"]
 
 
 def test_fetch_sources_returns_source_counts(tmp_path, monkeypatch):
-    subscriptions = tmp_path / "subscriptions.yaml"
-    subscriptions.write_text(
-        """
-sources:
-  - type: rss
-    name: Good Feed
-    url: https://example.test/feed.xml
-""",
-        encoding="utf-8",
+    monkeypatch.setattr("comp_synth.config.settings.subscriptions_path", tmp_path / "subscriptions.yaml")
+    monkeypatch.setattr("comp_synth.config.settings.crawl_db_path", tmp_path / "crawl.db")
+
+    from comp_synth.schema.source import SourceConfig
+
+    source = SourceConfig(
+        source_key="Good Feed",
+        source_type="rss",
+        url="https://example.test/feed.xml",
+        name="Good Feed",
+        enabled=True,
+        raw_config={"type": "rss", "name": "Good Feed", "url": "https://example.test/feed.xml"},
     )
-    monkeypatch.setattr("comp_synth.config.settings.subscriptions_path", subscriptions)
+
+    class FakeSourceService:
+        def __init__(self, **kwargs):
+            pass
+
+        def list_sources(self):
+            return [source]
 
     class FakeContentManager:
         async def fetch_all(self, sources):
@@ -161,6 +159,7 @@ sources:
                 source_counts={"Good Feed": 2},
             )
 
+    monkeypatch.setattr(nodes_module, "SourceService", FakeSourceService)
     monkeypatch.setattr(nodes_module, "ContentManager", FakeContentManager)
 
     result = asyncio.run(fetch_sources({}))

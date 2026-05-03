@@ -241,6 +241,10 @@ class DOMExtractor:
                             if url_match:
                                 url = url_match.group()
 
+                # 容器本身就是 <a> 时，select_one 只搜索后代，取容器自身的 href
+                if not url and container.name == "a" and container.get("href"):
+                    url = container["href"]
+
                 # 提取标题
                 title = ""
                 if title_selector:

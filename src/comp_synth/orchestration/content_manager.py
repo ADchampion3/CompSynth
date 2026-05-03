@@ -16,6 +16,7 @@ from comp_synth.schema.content_item import ContentItem, RSSItem, WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.source_outcome_store import SourceOutcomeStore
 from comp_synth.store.vector_store import VectorStore
+from comp_synth.utils.json_extraction import coerce_text_content, extract_json
 
 # ============================================================================
 # Source Strategy Pattern - 消除硬编码的来源类型
@@ -228,7 +229,9 @@ class ContentManager:
             now = asyncio.get_event_loop().time()
             elapsed = now - self._last_crawl_time
             if elapsed < self.CRAWL_DELAY:
-                await asyncio.sleep(self.CRAWL_DELAY - elapsed)
+                wait = self.CRAWL_DELAY - elapsed
+                logger.debug("[{type}] 节流等待 {wait:.1f}s: {url}", type=source_type, wait=wait, url=item.url)
+                await asyncio.sleep(wait)
             self._last_crawl_time = asyncio.get_event_loop().time()
 
         return await crawler.fetch_detail(item, site_name)
@@ -264,24 +267,35 @@ class ContentManager:
         truncated = content[:3000] if len(content) > 3000 else content
         llm = llm_registry.get(settings.model)
         prompt_text = build_summary_prompt(tags=self._tag_vocabulary)
-        response = await llm.ainvoke([
-            SystemMessage(content=prompt_text),
-            HumanMessage(content=f"标题：{title}\n\n内容：{truncated}"),
-        ])
-        text = response.content.strip()
-        try:
-            if "```" in text:
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
-            result = json.loads(text)
-            summary = result.get("summary", "").strip()
-            raw_tags = result.get("tags", [])
-            valid = set(self._tag_vocabulary) if self._tag_vocabulary else None
-            tags = [t for t in raw_tags if valid is None or t in valid] or ["其他"]
-            return summary, tags
-        except (json.JSONDecodeError, KeyError):
-            return text, ["其他"]
+
+        max_retries = 3
+        last_text = truncated[:200]
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = await llm.ainvoke([
+                    SystemMessage(content=prompt_text),
+                    HumanMessage(content=f"标题：{title}\n\n内容：{truncated}"),
+                ])
+                text = coerce_text_content(response.content).strip()
+                last_text = text
+
+                json_str = extract_json(text)
+                if not json_str:
+                    raise ValueError("未找到 JSON")
+
+                result = json.loads(json_str)
+                summary = result.get("summary", "").strip()
+                raw_tags = result.get("tags", [])
+                valid = set(self._tag_vocabulary) if self._tag_vocabulary else None
+                tags = [t for t in raw_tags if valid is None or t in valid] or ["其他"]
+                return summary, tags
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                logger.warning("[summarize_content] attempt={attempt}/{max} 解析失败: {error}", attempt=attempt, max=max_retries, error=e)
+                if attempt < max_retries:
+                    logger.info("[summarize_content] 重试 LLM 调用...")
+
+        logger.error("[summarize_content] {max} 次尝试均失败, 使用原始文本", max=max_retries)
+        return last_text[:200], ["其他"]
 
     async def _process_item(
         self,
@@ -380,8 +394,9 @@ class ContentManager:
 
         semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
         done_count = [0]
+        source_key = self._source_key(source)
         tasks = [
-            self._process_item(item, crawler, "rss", {"feed_url": feed_url}, semaphore, done_count, total)
+            self._process_item(item, crawler, "rss", {"feed_url": feed_url, "source_key": source_key}, semaphore, done_count, total)
             for item in raw_items
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -419,10 +434,11 @@ class ContentManager:
         total = len(raw_items)
         logger.info(f"[Web] 获取到 {total} 条原始条目，开始并发处理 (concurrent={self.MAX_CONCURRENT}, delay={self.CRAWL_DELAY}s)")
 
+        source_key = self._source_key(source)
         semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
         done_count = [0]
         tasks = [
-            self._process_item(item, crawler, "web", None, semaphore, done_count, total)
+            self._process_item(item, crawler, "web", {"source_key": source_key}, semaphore, done_count, total)
             for item in raw_items
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -452,6 +468,8 @@ class ContentManager:
         crawler = self._get_crawler(source_type)
         if not crawler:
             return (source_name, None, f"未知的订阅源类型: {source_type}")
+
+        logger.info("[ContentManager] 开始抓取 {name} (type={type}, url={url})", name=source_name, type=source_type, url=source.get("url", ""))
 
         try:
             if source_type == "rss":

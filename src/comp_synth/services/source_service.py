@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from loguru import logger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -13,7 +14,12 @@ from comp_synth.store.models import resolve_db_path
 
 
 class SourceService:
-    """Read configured subscription sources."""
+    """Source configuration with YAML as source of truth and DB as runtime cache.
+
+    - On app startup: YAML → DB (full overwrite)
+    - On API writes: DB + export_yaml() (keep YAML in sync)
+    - On API reads: from DB
+    """
 
     def __init__(self, subscriptions_path: Path | None = None, source_db_path: Path | None = None) -> None:
         self._subscriptions_path = Path(subscriptions_path or settings.subscriptions_path)
@@ -24,13 +30,11 @@ class SourceService:
             self._init_db()
 
     def list_sources(self) -> list[SourceConfig]:
-        if self._session_factory is not None and self._has_managed_sources():
+        if self._session_factory is not None:
             return self._with_source_repository(lambda repo: repo.list())
-
         return self._read_yaml_sources(self._subscriptions_path)
 
     def create_source(self, source_type: str, url: str, name: str | None = None, enabled: bool = True, javascript: bool = False) -> SourceConfig:
-        """Create a new managed source."""
         self._require_db()
         source = SourceConfig(
             source_key=name or url,
@@ -45,7 +49,6 @@ class SourceService:
         return source
 
     def update_source(self, source_key: str, **fields) -> SourceConfig | None:
-        """Update fields on an existing source. Returns None if not found."""
         self._require_db()
         return self._with_source_repository(lambda repo: self._update_in_repo(repo, source_key, fields))
 
@@ -68,15 +71,15 @@ class SourceService:
         return updated
 
     def delete_source(self, source_key: str) -> bool:
-        """Archive (soft-delete) a source."""
         self._require_db()
         return self._with_source_repository(lambda repo: repo.archive(source_key))
 
     def import_yaml(self, subscriptions_path: Path | None = None) -> list[SourceConfig]:
-        """Import YAML subscriptions into the managed sources database."""
+        """Import YAML subscriptions into the managed sources database (upsert)."""
         self._require_db()
         sources = self._read_yaml_sources(Path(subscriptions_path or self._subscriptions_path))
         self._with_source_repository(lambda repo: [repo.save(source) for source in sources])
+        logger.info("YAML → DB 同步完成: {count} 条", count=len(sources))
         return sources
 
     def export_yaml(self, output_path: Path | None = None, include_archived: bool = False) -> Path:
@@ -109,9 +112,6 @@ class SourceService:
             result = fn(SourceRepository(session))
             session.commit()
             return result
-
-    def _has_managed_sources(self) -> bool:
-        return bool(self._with_source_repository(lambda repo: repo.count(include_archived=True)))
 
     def _read_yaml_sources(self, path: Path) -> list[SourceConfig]:
         if not path.exists():

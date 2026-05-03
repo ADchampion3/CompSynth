@@ -325,6 +325,7 @@ class TestSourcesAPI:
     def test_list_sources_from_yaml(self, output_dir, subscriptions_yaml, tmp_path):
         db = tmp_path / "test.db"
         client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
+        client.post("/api/sources/import-yaml")
         resp = client.get("/api/sources")
         assert resp.status_code == 200
         data = resp.json()

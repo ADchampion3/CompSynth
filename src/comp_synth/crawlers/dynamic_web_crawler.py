@@ -1,3 +1,5 @@
+from loguru import logger
+
 from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
 from comp_synth.crawlers.base import BaseCrawler
 from comp_synth.schema.content_item import WebPageItem
@@ -58,11 +60,12 @@ class DynamicWebCrawler(BaseCrawler):
         html = ""
         try:
             html = await self._fetch_html(url)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[Dynamic] httpx 失败 {url}: {error}, 将尝试浏览器渲染", url=url, error=e)
 
         # 检测是否需要 JS 渲染
         if is_likely_spa(html):
+            logger.info("[Dynamic] 检测到 SPA 或空页面 {url}, 切换浏览器渲染", url=url)
             html = await self._fetch_html_with_browser(url)
 
         # 检测页面类型，委托给 AdaptiveWebCrawler
@@ -92,11 +95,13 @@ class DynamicWebCrawler(BaseCrawler):
         html = ""
         try:
             html = await self._fetch_html(url)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[Dynamic] httpx 失败 {url}: {error}, 将尝试浏览器渲染", url=url, error=e)
 
         # 强制 JS 渲染或检测到 SPA
         if force_js or is_likely_spa(html):
+            reason = "force_js=true" if force_js else "SPA 检测"
+            logger.info("[Dynamic] {reason} {url}, 切换浏览器渲染", reason=reason, url=url)
             html = await self._fetch_html_with_browser(url)
 
         # 检测页面类型，委托给 AdaptiveWebCrawler

@@ -1,8 +1,50 @@
 import { useState } from "react";
-import type { SourceResponse, SourceUpdateRequest } from "../../api/types";
+import type { SourceResponse } from "../../api/types";
 import { useUpdateSource, useDeleteSource } from "../../api/hooks";
 import { safeHref } from "../../api/client";
-import { truncate } from "../../lib/format";
+import { formatRelativeTime, truncate } from "../../lib/format";
+
+const STATUS_CFG: Record<string, { bg: string; text: string; label: string }> = {
+  healthy: { bg: "bg-ok-muted", text: "text-ok", label: "Healthy" },
+  stale: { bg: "bg-warn-muted", text: "text-warn", label: "Stale" },
+  failed: { bg: "bg-err-muted", text: "text-err", label: "Failed" },
+};
+
+function CrawlHealthBadge({ source }: { source: SourceResponse }) {
+  if (source.crawl_status === null) {
+    return <span className="text-xs text-ink-4">Not yet crawled</span>;
+  }
+
+  const cfg = STATUS_CFG[source.crawl_status] ?? STATUS_CFG.healthy;
+
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-1.5">
+        <span className={`rounded-sm ${cfg.bg} px-1.5 py-0.5 text-[0.6875rem] font-medium ${cfg.text}`}>
+          {cfg.label}
+        </span>
+        <span className="text-xs text-ink-4">
+          {formatRelativeTime(source.last_crawled_at)}
+        </span>
+      </div>
+      {source.last_new_item_count !== null && source.last_new_item_count > 0 && (
+        <div className="text-[0.625rem] text-ink-4">
+          {source.last_new_item_count} new item{source.last_new_item_count !== 1 ? "s" : ""}
+        </div>
+      )}
+      {source.recent_zero_days !== null && source.recent_zero_days > 0 && (
+        <div className="text-[0.625rem] text-warn">
+          {source.recent_zero_days} zero-result day{source.recent_zero_days !== 1 ? "s" : ""}
+        </div>
+      )}
+      {source.last_error && (
+        <div className="text-[0.625rem] text-err truncate max-w-[200px]" title={source.last_error}>
+          {truncate(source.last_error, 60)}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function SourcesTable({
   sources,
@@ -47,6 +89,9 @@ export default function SourcesTable({
               URL
             </th>
             <th className="pb-2 pr-4 text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4">
+              Last crawl
+            </th>
+            <th className="pb-2 pr-4 text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4">
               Status
             </th>
             <th className="pb-2 text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 text-right">
@@ -75,6 +120,9 @@ export default function SourcesTable({
                 >
                   {truncate(source.url, 50)}
                 </a>
+              </td>
+              <td className="py-2.5 pr-4">
+                <CrawlHealthBadge source={source} />
               </td>
               <td className="py-2.5 pr-4">
                 <button
@@ -157,6 +205,9 @@ export default function SourcesTable({
             >
               {source.url}
             </a>
+            <div className="mt-1.5">
+              <CrawlHealthBadge source={source} />
+            </div>
             <div className="flex items-center gap-3 mt-2">
               {onEdit && (
                 <button

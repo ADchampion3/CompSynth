@@ -2,7 +2,6 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-import yaml
 from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
 
@@ -13,29 +12,24 @@ from comp_synth.orchestration.state import PipelineState
 from comp_synth.prompt import CONTENT_ANALYST_PROMPT, REPORT_GENERATOR_PROMPT
 from comp_synth.report_format_checker import ReportFormatChecker
 from comp_synth.schema.content_item import ContentItem
+from comp_synth.services.source_service import SourceService
+from comp_synth.utils.json_extraction import coerce_text_content, extract_json
 
 
 async def fetch_sources(state: PipelineState) -> dict:
     """从所有订阅源采集内容（委托给 ContentManager）"""
-    subs_path = settings.subscriptions_path
-    if not subs_path.exists():
-        return {
-            "sources": [],
-            "raw_items": [],
-            "errors": [
-                f"Missing subscriptions.yaml at {subs_path}. Copy subscriptions.example.yaml to subscriptions.yaml and configure sources."
-            ],
-        }
+    source_service = SourceService(
+        subscriptions_path=settings.subscriptions_path,
+        source_db_path=settings.crawl_db_path,
+    )
+    source_configs = source_service.list_sources()
+    sources = [s.raw_config for s in source_configs if s.enabled]
 
-    with open(subs_path, encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
-
-    sources = config.get("sources", [])
     if not sources:
         return {
             "sources": [],
             "raw_items": [],
-            "errors": ["No sources configured in subscriptions.yaml"],
+            "errors": ["No enabled sources configured"],
         }
 
     # Create ContentManager and store in state for later use by deduplicate
@@ -92,53 +86,58 @@ URL: {item.url}
 摘要: {item.summary}
 ---
 """
-    logger.info(f"正在使用 LLM 总结 {len(new_items)} 篇文章...")
-    response = await llm.ainvoke([
-        SystemMessage(content=CONTENT_ANALYST_PROMPT),
-        HumanMessage(content=f"以下是 {len(new_items)} 篇文章，请分析：\n{articles_text}"),
-    ])
-
     # 构建文章索引映射 (URL -> ContentItem)
     item_map = {item.url: item for item in new_items}
 
-    try:
-        content = response.content
-        # 处理可能的 markdown 代码块包裹
-        if "```" in content:
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-        result = json.loads(content)
-        topic_groups = [
-            {
-                "topic": t["topic"],
-                "summary": t["summary"],
-                "articles": [
-                    {
-                        "title": a["title"],
-                        "summary": a["summary"],
-                        "url": a["url"],
-                        "tags": item_map.get(a["url"], ContentItem(source="", url="")).tags,
-                    }
-                    for a in t["articles"]
-                ],
-                "related_historical": [],
-            }
-            for t in result["topics"]
-        ]
-        logger.info(f"LLM 分组完成: {len(topic_groups)} 个主题")
-    except (json.JSONDecodeError, KeyError) as e:
-        logger.warning(f"LLM 输出解析失败 ({e})，使用 fallback 分组")
-        topic_groups = [{
-            "topic": "综合",
-            "summary": "最近采集的文章汇总。",
-            "articles": [
-                {"title": item.title, "summary": item.summary or "", "url": item.url, "tags": item.tags}
-                for item in new_items
-            ],
-            "related_historical": [],
-        }]
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        logger.info(f"正在使用 LLM 总结 {len(new_items)} 篇文章... (attempt={attempt}/{max_retries})")
+        try:
+            response = await llm.ainvoke([
+                SystemMessage(content=CONTENT_ANALYST_PROMPT),
+                HumanMessage(content=f"以下是 {len(new_items)} 篇文章，请分析：\n{articles_text}"),
+            ])
+            content = coerce_text_content(response.content).strip()
+            logger.debug("[summarize] LLM 原始输出 (前500字): {preview}", preview=content[:500])
 
+            json_str = extract_json(content)
+            if not json_str:
+                raise ValueError("未找到 JSON 内容")
+            result = json.loads(json_str)
+            topic_groups = [
+                {
+                    "topic": t["topic"],
+                    "summary": t["summary"],
+                    "articles": [
+                        {
+                            "title": a["title"],
+                            "summary": a["summary"],
+                            "url": a["url"],
+                            "tags": item_map.get(a["url"], ContentItem(source="", url="")).tags,
+                        }
+                        for a in t["articles"]
+                    ],
+                    "related_historical": [],
+                }
+                for t in result["topics"]
+            ]
+            logger.info(f"LLM 分组完成: {len(topic_groups)} 个主题")
+            return {"topic_groups": topic_groups}
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.warning("[summarize] attempt={attempt}/{max} 解析失败: {error}", attempt=attempt, max=max_retries, error=e)
+            if attempt < max_retries:
+                logger.info("[summarize] 重试 LLM 调用...")
+
+    logger.error("[summarize] {max} 次尝试均失败，使用 fallback 分组", max=max_retries)
+    topic_groups = [{
+        "topic": "综合",
+        "summary": "最近采集的文章汇总。",
+        "articles": [
+            {"title": item.title, "summary": item.summary or "", "url": item.url, "tags": item.tags}
+            for item in new_items
+        ],
+        "related_historical": [],
+    }]
     return {"topic_groups": topic_groups}
 
 
@@ -189,7 +188,7 @@ async def publish(state: PipelineState) -> dict:
         HumanMessage(content=f"请根据以下主题分组信息生成报告：\n\n{groups_text}"),
     ])
 
-    report = response.content
+    report = coerce_text_content(response.content)
 
     # 格式检查（警告但不阻断）
     checker = ReportFormatChecker(report)

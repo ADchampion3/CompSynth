@@ -35,6 +35,7 @@ class RSSCrawler(BaseCrawler):
 
     async def fetch_detail(self, item: RSSItem, site_name: str) -> WebPageItem | RSSItem:
         """爬取详情页，用 readability 提取内容（始终执行）"""
+        logger.debug("[RSS] 抓取详情页 {url}", url=item.url)
         try:
             html = await self._fetch_html(item.url)
             doc = Document(html)
@@ -99,6 +100,7 @@ class RSSCrawler(BaseCrawler):
     async def fetch_feed(self, source_config: dict) -> list[RSSItem]:
         """抓取 RSS 源，返回原始条目列表（不含去重和持久化，由 ContentManager 处理）"""
         feed_url = source_config["url"]
+        logger.info("[RSS] 开始抓取 feed: {url}", url=feed_url)
         feed = feedparser.parse(feed_url)
 
         items = []
