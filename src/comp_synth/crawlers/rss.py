@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin
 
 import feedparser
@@ -85,7 +85,7 @@ class RSSCrawler(BaseCrawler):
 
         # ① 有时间的：时间阈值过滤
         if time_threshold_days > 0:
-            cutoff = datetime.now() - timedelta(days=time_threshold_days)
+            cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=time_threshold_days)
             items_with_time = [
                 item for item in items_with_time
                 if item.published_at and item.published_at >= cutoff

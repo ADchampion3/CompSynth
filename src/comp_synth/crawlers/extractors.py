@@ -10,23 +10,7 @@ from pydantic import BaseModel
 
 from comp_synth.llm_provider.registry import llm_registry
 from comp_synth.prompt import DOM_PROMPTS
-
-
-def _parse_date_text(text: str) -> datetime | None:
-    """解析日期文本，支持多种格式"""
-    formats = [
-        "%Y-%m-%d",
-        "%Y/%m/%d",
-        "%Y年%m月%d日",
-        "%B %d, %Y",
-        "%d %B %Y",
-    ]
-    for fmt in formats:
-        try:
-            return datetime.strptime(text.strip(), fmt)
-        except ValueError:
-            continue
-    return None
+from comp_synth.utils.date_parser import parse_published_at
 
 
 class ListItemSelector(BaseModel):
@@ -284,7 +268,7 @@ class DOMExtractor:
                         if published_at is None:
                             time_text = time_elem.get_text(strip=True)
                             if time_text:
-                                published_at = _parse_date_text(time_text)
+                                published_at = parse_published_at(time_text)
 
                 if title and url:  # 至少需要标题和 URL
                     # 去重：基于 URL 去重

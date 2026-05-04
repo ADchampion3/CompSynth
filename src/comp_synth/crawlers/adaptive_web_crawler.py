@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -131,7 +131,7 @@ class AdaptiveWebCrawler(BaseCrawler):
 
         # ① 有时间的：时间阈值过滤
         if time_threshold_days > 0:
-            cutoff = datetime.now() - timedelta(days=time_threshold_days)
+            cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=time_threshold_days)
             items_with_time = [
                 item for item in items_with_time
                 if item.get("published_at") and item["published_at"] >= cutoff
@@ -416,6 +416,7 @@ class AdaptiveWebCrawler(BaseCrawler):
                 title=item_dict.get("title", ""),
                 summary=item_summary,
                 site_name=site_name,
+                published_at=item_dict.get("published_at"),
             )
             results.append(list_item)
 
@@ -457,6 +458,7 @@ class AdaptiveWebCrawler(BaseCrawler):
         summary: str = "",
         content: str = "",
         site_name: str = "",
+        published_at: datetime | None = None,
     ) -> WebPageItem:
         """构建 WebPageItem，最低保障 url + title"""
         return WebPageItem(
@@ -464,6 +466,7 @@ class AdaptiveWebCrawler(BaseCrawler):
             title=title or url,  # title 最低保障为 url
             summary=summary,
             content=content,
+            published_at=published_at,
             metadata={"site_name": site_name},
         )
 
