@@ -25,9 +25,21 @@ from comp_synth.store.repositories.source_crawl_outcome_repository import (
 
 
 async def run(db_path: Path | None = None) -> dict:
+    from comp_synth.config import settings
     from comp_synth.utils.logging import logger
 
     logger.info("CompSynth starting")
+
+    # Sync YAML subscriptions to DB before crawl
+    source_service = SourceService(
+        subscriptions_path=settings.subscriptions_path,
+        source_db_path=settings.crawl_db_path,
+    )
+    try:
+        imported = source_service.import_yaml()
+        logger.info(f"Subscriptions synced: {len(imported)} sources")
+    except Exception as exc:
+        logger.warning(f"Subscription sync skipped: {exc}")
 
     result = await CrawlService(crawl_db_path=db_path).run_all()
 
@@ -100,7 +112,7 @@ def serve_command(args) -> None:
 
     from comp_synth.api.app import create_app
 
-    uvicorn.run(create_app(), host=args.host, port=args.port)
+    uvicorn.run(create_app(), host=args.host, port=args.port, reload=False)
 
 
 def sources_command(args) -> dict:
