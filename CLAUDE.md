@@ -12,8 +12,19 @@ CompSynth is a content aggregation and publishing system (内容聚合与发布�
 # Install dependencies
 uv sync
 
-# Run the application
+# Run the full pipeline (crawl → dedup → summarize → publish)
 uv run compsynth
+
+# Start the API server (serves Web UI + API)
+uv run compsynth serve
+
+# CLI subcommands
+uv run compsynth crawl              # Run crawl pipeline only
+uv run compsynth dashboard          # Print dashboard summary JSON
+uv run compsynth reports list       # List generated reports
+uv run compsynth reports get <id>   # Get report content
+uv run compsynth sources import     # Import subscriptions.yaml → DB
+uv run compsynth sources export      # Export DB → subscriptions.yaml
 
 # Run tests
 uv run python -m pytest -q
@@ -68,11 +79,19 @@ publishers/ — publishes aggregated reports to target platforms
 
 ### Config
 
-Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.py`). Key vars: `COMPSYNTH_DATA_DIR`, `COMPSYNTH_CHROMA_PERSIST_DIR`, `COMPSYNTH_CRAWL_DB_PATH`, `COMPSYNTH_SITE_SCHEMA_DB_PATH`, LLM API keys.
+Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.py`). Key vars: `COMPSYNTH_DATA_DIR`, `COMPSYNTH_CHROMA_PERSIST_DIR`, `COMPSYNTH_CRAWL_DB_PATH`, `COMPSYNTH_SITE_SCHEMA_DB_PATH`, `COMPSYNTH_SUBSCRIPTIONS_PATH`, LLM API keys.
+
+**YAML/DB sync**: On startup, `subscriptions.yaml` is synced to `crawl_state.db` (YAML is source of truth). The API server and CLI pipeline both read from the DB at runtime.
 
 ### Entry Point
 
-`src/comp_synth/main.py` exposes the `compsynth` console script. Its async `run()` invokes the plain async pipeline.
+`src/comp_synth/main.py` exposes the `compsynth` console script with subcommands:
+- `compsynth` (no subcommand): runs full pipeline (crawl → dedup → summarize → publish)
+- `compsynth serve`: starts FastAPI server on http://127.0.0.1:8000
+- `compsynth crawl`: runs crawl pipeline only
+- `compsynth dashboard`: prints dashboard JSON
+- `compsynth reports list/get`: report management
+- `compsynth sources import/export`: subscription source sync between YAML and DB
 
 ### Data Flow
 
