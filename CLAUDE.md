@@ -48,13 +48,22 @@ publishers/ — publishes aggregated reports to target platforms
 | Module | Purpose |
 |--------|---------|
 | `schema/content_item.py` | `ContentItem` base model with source, url, title, content, metadata |
-| `crawlers/` | RSSCrawler, AdaptiveWebCrawler implementations |
+| `schema/source.py` | `SourceConfig` model for subscription source definitions |
+| `crawlers/` | RSSCrawler, AdaptiveWebCrawler, DynamicWebCrawler implementations |
+| `crawlers/extractors.py` | `DOMExtractor` for CSS-selector and LLM-based content extraction |
 | `store/vector_store.py` | ChromaDB-backed vector storage with TTL cleanup |
 | `store/crawl_tracker.py` | SQLite-backed crawl tracking and deduplication |
 | `store/schema_store.py` | SQLite-backed site schema storage for CSS selectors |
+| `store/migrations.py` | Lightweight SQLite schema bootstrap and migration tracking |
+| `store/repositories/` | Data access layer: article, source, crawl outcome, report repositories |
 | `orchestration/pipeline.py` | Plain async pipeline runner and routing |
 | `orchestration/nodes.py` | Pipeline nodes: fetch, dedup, summarize, enrich, publish |
+| `orchestration/content_manager.py` | Source dispatch, concurrency control, detail fetch orchestration |
+| `services/` | Business logic: source, article, crawl, dashboard, report services |
+| `api/` | FastAPI application with routers for articles, sources, crawls, tags, reports, dashboard |
+| `api/schemas.py` | Pydantic request/response models for API endpoints |
 | `llm_provider/registry.py` | LLM provider registry via LangChain |
+| `utils/json_extraction.py` | Shared JSON extraction from LLM output (code blocks, mixed text) |
 | `prompt.py` | LLM prompts for analysis and report generation |
 
 ### Config
@@ -68,12 +77,13 @@ Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.p
 ### Data Flow
 
 ```
-1. Load subscriptions from subscriptions.yaml
-2. For each source, select appropriate crawler and fetch → list[ContentItem]
-3. Deduplicate via CrawlTracker, merge today's historical content
-4. Summarize: LLM groups articles by topic
-5. Enrich: Search VectorStore for related content, save new items
-6. Publish: LLM generates Markdown report to output/digest_YYYYMMDD.md
+1. On startup: sync subscriptions.yaml → source DB (YAML is source of truth)
+2. Load enabled sources from DB (fallback to YAML if no DB configured)
+3. For each source, select appropriate crawler and fetch → list[ContentItem]
+4. Deduplicate via CrawlTracker, merge today's historical content
+5. Summarize: LLM groups articles by topic (3-retry with JSON extraction)
+6. Enrich: Search VectorStore for related content, save new items
+7. Publish: LLM generates Markdown report to output/digest_YYYYMMDD.md
 ```
 
 ## Behavioral Guidelines

@@ -48,7 +48,6 @@ logger.add(
     colorize=True,
     diagnose=True,
     backtrace=True,
-    enqueue=True,
 )
 
 
@@ -57,7 +56,6 @@ logger.add(
     level="DEBUG",
     format=FILE_FMT,
     encoding="utf-8",
-    enqueue=True,
     backtrace=False,
     diagnose=False,
 )
@@ -67,7 +65,6 @@ logger.add(
     level="ERROR",
     format=ERROR_FMT,
     encoding="utf-8",
-    enqueue=True,
     backtrace=True,
     diagnose=True,
 )

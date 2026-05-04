@@ -80,6 +80,19 @@ export async function apiPatch<T>(
   return handleResponse<T>(response);
 }
 
+export async function apiPatchBody<T>(
+  path: string,
+  body: unknown,
+): Promise<T> {
+  const url = new URL(BASE + path, window.location.origin);
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<T>(response);
+}
+
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   const url = new URL(BASE + path, window.location.origin);
   const response = await fetch(url, {

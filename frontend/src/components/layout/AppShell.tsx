@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: "/inbox", label: "Inbox" },
   { to: "/reports", label: "Reports" },
   { to: "/sources", label: "Sources" },
+  { to: "/settings", label: "Settings" },
 ];
 
 function ThemeToggle() {

@@ -7,17 +7,40 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 
-from comp_synth.api.routers import articles, crawls, dashboard, reports, sources, tags
+from comp_synth.api.routers import (
+    articles,
+    crawls,
+    dashboard,
+    reports,
+    settings,
+    sources,
+    tags,
+)
 from comp_synth.api.schemas import ErrorDetail
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from comp_synth.api.deps import _init_db, get_settings
+    from comp_synth.api.deps import _init_db, _session_factory, get_settings
     from comp_synth.services.source_service import SourceService
 
     settings = get_settings()
     _init_db(settings)
+
+    # Apply DB-backed settings overrides before consumers read
+    try:
+        from comp_synth.config import apply_db_overrides
+        from comp_synth.store.repositories.settings_repository import SettingsRepository
+
+        with _session_factory() as session:
+            repo = SettingsRepository(session)
+            overrides = repo.load()
+            if overrides:
+                apply_db_overrides(overrides)
+    except Exception as exc:
+        from loguru import logger
+
+        logger.warning("Settings DB override failed: {error}", error=exc)
 
     # 启动时以 YAML 为准，全量同步到 DB
     try:
@@ -77,5 +100,6 @@ def create_app() -> FastAPI:
     app.include_router(reports.router, prefix="/api")
     app.include_router(dashboard.router, prefix="/api")
     app.include_router(tags.router, prefix="/api")
+    app.include_router(settings.router, prefix="/api")
 
     return app

@@ -3,7 +3,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { apiGet, apiPatch, apiPost, apiPut, apiDelete } from "./client";
+import { apiGet, apiPatch, apiPatchBody, apiPost, apiPut, apiDelete } from "./client";
 import type {
   ArticleLikeUpdate,
   ArticleNoteUpdate,
@@ -17,6 +17,8 @@ import type {
   ReadState,
   ReportDetailResponse,
   ReportSummaryResponse,
+  SettingsResponse,
+  SettingsSchemaResponse,
   SourceCreateRequest,
   SourceResponse,
   SourceUpdateRequest,
@@ -365,6 +367,33 @@ export function useUpdateArticleTags() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["tags"] });
+    },
+  });
+}
+
+// Settings
+export function useSettings() {
+  return useQuery({
+    queryKey: ["settings"],
+    queryFn: () => apiGet<SettingsResponse>("/settings"),
+  });
+}
+
+export function useSettingsSchema() {
+  return useQuery({
+    queryKey: ["settings", "schema"],
+    queryFn: () => apiGet<SettingsSchemaResponse>("/settings/schema"),
+    staleTime: Infinity,
+  });
+}
+
+export function useUpdateSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (updates: Record<string, string>) =>
+      apiPatchBody<SettingsResponse>("/settings", updates),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 }

@@ -170,3 +170,23 @@ export interface DashboardSummaryResponse {
   unhealthy_sources: SourceHealthResponse[];
   stale_running_runs: CrawlRunResponse[];
 }
+
+// Settings
+
+export interface SettingsResponse {
+  [key: string]: string;
+}
+
+export interface SettingsSchemaField {
+  type: string;
+  group: string;
+  label: string;
+  sensitive: boolean;
+  description: string;
+  default: string | number;
+  constraints?: { minimum?: number; maximum?: number };
+}
+
+export interface SettingsSchemaResponse {
+  fields: Record<string, SettingsSchemaField>;
+}

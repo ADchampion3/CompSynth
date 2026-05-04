@@ -32,7 +32,6 @@ class Settings(BaseSettings):
     # 爬虫
     request_timeout: int = 30
     max_concurrent_requests: int = 5
-    rss_lookback_days: int = 7
     list_page_time_threshold_days: int = 7
     list_page_count_threshold: int = 20
     selector_zero_refresh_enabled: bool = True
@@ -49,3 +48,23 @@ settings = Settings()
 
 # 兼容日志模块: from comp_synth import config; config.LOG_DIR
 LOG_DIR = str(settings.log_dir)
+
+
+def apply_db_overrides(overrides: dict[str, str]) -> None:
+    """Patch the settings singleton from DB overrides on startup."""
+    for key, value in overrides.items():
+        if not hasattr(settings, key):
+            continue
+        field_type = type(getattr(settings, key))
+        try:
+            if field_type is Path:
+                setattr(settings, key, Path(value))
+            elif field_type is bool:
+                setattr(settings, key, value.lower() in ("true", "1", "yes"))
+            elif field_type is int:
+                setattr(settings, key, int(value))
+            else:
+                setattr(settings, key, value)
+        except (ValueError, TypeError):
+            from loguru import logger
+            logger.warning("Skipping invalid override {key}={value}", key=key, value=value)

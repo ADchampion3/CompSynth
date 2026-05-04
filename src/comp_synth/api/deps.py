@@ -12,6 +12,7 @@ from comp_synth.services.article_service import ArticleService
 from comp_synth.services.crawl_service import CrawlService
 from comp_synth.services.dashboard_service import DashboardService
 from comp_synth.services.report_service import ReportService
+from comp_synth.services.settings_service import SettingsService
 from comp_synth.services.source_service import SourceService
 from comp_synth.store.migrations import bootstrap_database
 from comp_synth.store.models import resolve_db_path
@@ -20,6 +21,7 @@ from comp_synth.store.repositories.article_state_repository import (
     ArticleStateRepository,
 )
 from comp_synth.store.repositories.crawl_run_repository import CrawlRunRepository
+from comp_synth.store.repositories.settings_repository import SettingsRepository
 from comp_synth.store.repositories.source_crawl_outcome_repository import (
     SourceCrawlOutcomeRepository,
 )
@@ -105,3 +107,7 @@ def get_dashboard_service(session: Session = Depends(get_session)) -> DashboardS
         crawl_run_repository=CrawlRunRepository(session),
         source_outcome_repository=SourceCrawlOutcomeRepository(session),
     )
+
+
+def get_settings_service(session: Session = Depends(get_session)) -> SettingsService:
+    return SettingsService(repository=SettingsRepository(session))

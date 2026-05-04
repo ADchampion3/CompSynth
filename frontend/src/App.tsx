@@ -9,6 +9,7 @@ const ArticleDetailPage = lazy(() => import("./components/article/ArticleDetailP
 const ReportsListPage = lazy(() => import("./components/reports/ReportsListPage"));
 const ReportDetailPage = lazy(() => import("./components/reports/ReportDetailPage"));
 const SourcesPage = lazy(() => import("./components/sources/SourcesPage"));
+const SettingsPage = lazy(() => import("./components/settings/SettingsPage"));
 
 function PageLoader() {
   return (
@@ -67,6 +68,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <SourcesPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="settings"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <SettingsPage />
             </Suspense>
           }
         />

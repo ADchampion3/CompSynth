@@ -10,6 +10,7 @@ from comp_synth.store.models import Base
 CURRENT_SCHEMA_MIGRATION_ID = "0001_create_current_schema"
 TAGS_COLUMN_MIGRATION_ID = "0002_add_tags_column"
 BACKFILL_MIGRATION_ID = "0003_backfill_source_key_and_tags"
+SETTINGS_TABLE_MIGRATION_ID = "0004_create_settings_table"
 
 _metadata = MetaData()
 
@@ -82,6 +83,24 @@ def _run_0003_backfill_source_key_and_tags(conn) -> None:
     )
 
 
+def _run_0004_create_settings_table(conn) -> None:
+    if _migration_applied(conn, SETTINGS_TABLE_MIGRATION_ID):
+        return
+    conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS settings ("
+        "  id INTEGER PRIMARY KEY CHECK (id = 1),"
+        "  data TEXT NOT NULL DEFAULT '{}',"
+        "  updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+        ")"
+    ))
+    conn.execute(
+        insert(schema_migrations).values(
+            migration_id=SETTINGS_TABLE_MIGRATION_ID,
+            applied_at=datetime.now(),
+        )
+    )
+
+
 def bootstrap_database(engine: Engine) -> None:
     """Create current tables and record the baseline schema migration."""
     Base.metadata.create_all(engine)
@@ -96,3 +115,4 @@ def bootstrap_database(engine: Engine) -> None:
             )
         _run_0002_add_tags_column(conn)
         _run_0003_backfill_source_key_and_tags(conn)
+        _run_0004_create_settings_table(conn)
