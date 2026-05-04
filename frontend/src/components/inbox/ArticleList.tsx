@@ -76,11 +76,13 @@ const ArticleListItem = memo(function ArticleListItem({
           >
             {truncate(article.title || "(untitled)", 80)}
           </Link>
-          <span
-            className={`font-display text-[0.9375rem] hidden md:block leading-snug ${titleClass}`}
+          <Link
+            to={`/articles/${encodeURIComponent(article.article_id)}`}
+            onClick={(e) => e.stopPropagation()}
+            className={`font-display text-[0.9375rem] hidden md:block leading-snug ${titleClass} hover:text-accent-text`}
           >
             {truncate(article.title || "(untitled)", 100)}
-          </span>
+          </Link>
           <div className={`flex items-center gap-2 mt-1 text-xs ${metaClass}`}>
             <span>{article.source}</span>
             <span>
