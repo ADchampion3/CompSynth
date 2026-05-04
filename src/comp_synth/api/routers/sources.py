@@ -80,13 +80,12 @@ def list_sources(
 def _sync_yaml(service: SourceService) -> None:
     """Sync database sources to subscriptions.yaml."""
     try:
-        service.export_yaml()
+        path = service.export_yaml()
+        logger.info("YAML sync OK: {path}", path=path)
     except ValueError as exc:
-        from loguru import logger
-        logger.debug("YAML sync skipped (no DB configured): {error}", error=exc)
+        logger.warning("YAML sync skipped (no DB configured): {error}", error=exc)
     except Exception as exc:
-        from loguru import logger
-        logger.warning("YAML sync failed: {error}", error=exc)
+        logger.error("YAML sync failed: {error}", error=exc)
 
 
 @router.post("/sources", response_model=SourceResponse, status_code=201)
@@ -174,12 +173,13 @@ def update_llm_selectors(
     return {"updated": True, "site_name": site_name}
 
 
-@router.put("/sources/{source_key}", response_model=SourceResponse)
+@router.put("/sources/{source_key:path}", response_model=SourceResponse)
 def update_source(
     source_key: str,
     body: SourceUpdateRequest,
     service: SourceService = Depends(get_source_service),
 ):
+    source_key = source_key.removeprefix("api/sources/")
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -190,7 +190,7 @@ def update_source(
     return _source_to_response(source)
 
 
-@router.delete("/sources/{source_key}", status_code=204)
+@router.delete("/sources/{source_key:path}", status_code=204)
 def delete_source(source_key: str, service: SourceService = Depends(get_source_service)):
     ok = service.delete_source(source_key)
     if not ok:

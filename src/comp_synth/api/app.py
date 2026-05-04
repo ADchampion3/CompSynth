@@ -21,18 +21,18 @@ from comp_synth.api.schemas import ErrorDetail
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from comp_synth.api.deps import _init_db, _session_factory, get_settings
+    from comp_synth.api.deps import _init_db, get_settings
     from comp_synth.services.source_service import SourceService
 
     settings = get_settings()
-    _init_db(settings)
+    session_factory = _init_db(settings)
 
     # Apply DB-backed settings overrides before consumers read
     try:
         from comp_synth.config import apply_db_overrides
         from comp_synth.store.repositories.settings_repository import SettingsRepository
 
-        with _session_factory() as session:
+        with session_factory() as session:
             repo = SettingsRepository(session)
             overrides = repo.load()
             if overrides:

@@ -30,6 +30,7 @@ class ArticleModel(Base):
 
     article_id: Mapped[str] = mapped_column(String, primary_key=True)
     vector_id: Mapped[str] = mapped_column(String, nullable=False)
+    source_key: Mapped[str] = mapped_column(String, nullable=False, index=True)
     crawled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     content: Mapped[str] = mapped_column(Text, default="")

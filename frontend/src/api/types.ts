@@ -69,6 +69,11 @@ export interface TagVocabularyResponse {
   tags: string[];
 }
 
+export interface InboxSourceResponse {
+  source: string;
+  article_count: number;
+}
+
 export interface TagsUpdateRequest {
   tags: string[];
 }

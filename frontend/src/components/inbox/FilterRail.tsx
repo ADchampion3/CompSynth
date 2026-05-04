@@ -1,4 +1,4 @@
-import { useSources, useTags } from "../../api/hooks";
+import { useInboxSources, useTags } from "../../api/hooks";
 
 const READ_STATES = [
   { value: "", label: "All" },
@@ -25,7 +25,7 @@ export default function FilterRail({
   onFilterChange: (key: string, value: string | undefined) => void;
   onClear: () => void;
 }) {
-  const { data: sources } = useSources();
+  const { data: sources } = useInboxSources();
   const { data: tagsData } = useTags();
   const tags = tagsData?.tags ?? [];
 
@@ -59,8 +59,8 @@ export default function FilterRail({
         >
           <option value="">All sources</option>
           {sources?.map((s) => (
-            <option key={s.source_key} value={s.source_key}>
-              {s.name ?? s.source_key}
+            <option key={s.source} value={s.source}>
+              {s.source} ({s.article_count})
             </option>
           ))}
         </select>

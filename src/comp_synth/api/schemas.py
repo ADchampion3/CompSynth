@@ -102,6 +102,14 @@ class TagVocabularyResponse(BaseModel):
     tags: list[str]
 
 
+# --- Inbox source schemas ---
+
+
+class InboxSourceResponse(BaseModel):
+    source: str
+    article_count: int
+
+
 # --- Source request schemas ---
 
 

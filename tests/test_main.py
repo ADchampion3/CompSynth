@@ -173,7 +173,7 @@ sources:
 
     service = main_module.SourceService(source_db_path=db_path)
     sources = service.list_sources()
-    assert [source.source_key for source in sources] == ["Example Feed"]
+    assert [source.source_key for source in sources] == ["https://example.test/feed.xml"]
 
 
 def test_sources_export_command_writes_yaml_from_database(tmp_path, capsys):
@@ -198,7 +198,7 @@ sources:
     assert payload == {"exported": str(exported)}
     reloaded = main_module.SourceService(subscriptions_path=exported)
     sources = reloaded.list_sources()
-    assert [source.source_key for source in sources] == ["Example Site"]
+    assert [source.source_key for source in sources] == ["https://example.test/"]
     assert sources[0].enabled is False
 
 

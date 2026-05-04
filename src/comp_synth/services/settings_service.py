@@ -1,5 +1,7 @@
 """Service layer for settings management."""
 
+from pathlib import Path
+
 from comp_synth.config import Settings
 from comp_synth.store.repositories.settings_repository import SettingsRepository
 
@@ -8,6 +10,51 @@ MASKED_SENTINEL = "***configured***"
 SENSITIVE_FIELDS = {"openai_api_key", "anthropic_api_key"}
 
 PATH_FIELDS = {"log_dir", "data_dir", "chroma_persist_dir", "crawl_db_path", "site_schema_db_path", "subscriptions_path", "output_dir"}
+
+
+def _sync_to_env(
+    overrides: dict[str, str],
+    remove_keys: set[str] | None = None,
+    env_path: Path | None = None,
+) -> Path:
+    """Write current DB overrides into the .env file.
+
+    - Keys in *overrides* are updated in-place or appended.
+    - Keys in *remove_keys* (bare lowercase names) are removed from the file.
+    - All other lines (comments, non-schema vars) are preserved untouched.
+    """
+    path = Path(env_path or ".env")
+    managed_lower = {k.lower() for k in SETTINGS_SCHEMA}
+    remove_lower = {k.lower() for k in (remove_keys or set())}
+
+    lines: list[str] = []
+    written: set[str] = set()
+
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                key = stripped.split("=", 1)[0].strip()
+                bare_lower = key.removeprefix("COMPSYNTH_").lower()
+                if key.upper().startswith("COMPSYNTH_") and bare_lower in managed_lower:
+                    if bare_lower in overrides:
+                        lines.append(f"{key}={overrides[bare_lower]}")
+                        written.add(bare_lower)
+                        continue
+                    if bare_lower in remove_lower:
+                        continue  # omit this line
+            lines.append(line)
+
+    # Add overrides not yet in file (use uppercase convention)
+    for bare_key, value in overrides.items():
+        if bare_key not in written:
+            lines.append(f"COMPSYNTH_{bare_key.upper()}={value}")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return path
 
 SETTINGS_SCHEMA = {
     "openai_api_key": {"type": "string", "group": "llm", "label": "OpenAI API Key", "sensitive": True, "description": "API key for OpenAI-compatible LLM provider", "default": ""},
@@ -81,6 +128,7 @@ class SettingsService:
         self._validate_against_model(current)
 
         self._repo.save(current)
+        _sync_to_env(current)
         return self.get_effective_settings()
 
     def reset_group(self, group: str) -> dict:
@@ -93,6 +141,7 @@ class SettingsService:
             self._repo.save(current)
         else:
             self._repo.delete()
+        _sync_to_env(current, remove_keys=set(keys_in_group))
         return self.get_effective_settings()
 
     def _defaults_from_model(self) -> dict[str, str]:

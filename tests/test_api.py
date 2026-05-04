@@ -338,7 +338,7 @@ class TestSourcesAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) >= 1
-        assert data[0]["source_key"] == "test-source"
+        assert data[0]["source_key"] == "https://example.test/feed"
 
     def test_import_yaml(self, output_dir, subscriptions_yaml, tmp_path):
         db = tmp_path / "test.db"
@@ -365,7 +365,7 @@ class TestSourcesAPI:
         )
         assert resp.status_code == 201
         data = resp.json()
-        assert data["source_key"] == "New Source"
+        assert data["source_key"] == "https://new.test/feed"
         assert data["source_type"] == "rss"
 
     def test_update_source(self, output_dir, subscriptions_yaml, tmp_path):
@@ -373,7 +373,7 @@ class TestSourcesAPI:
         client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
         client.post("/api/sources/import-yaml")
         resp = client.put(
-            "/api/sources/test-source",
+            "/api/sources/https://example.test/feed",
             json={"name": "Renamed", "enabled": False},
         )
         assert resp.status_code == 200
@@ -390,11 +390,11 @@ class TestSourcesAPI:
         db = tmp_path / "test.db"
         client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
         client.post("/api/sources/import-yaml")
-        resp = client.delete("/api/sources/test-source")
+        resp = client.delete("/api/sources/https://example.test/feed")
         assert resp.status_code == 204
         # Verify it's gone from list
         list_resp = client.get("/api/sources")
-        assert all(s["source_key"] != "test-source" for s in list_resp.json())
+        assert all(s["source_key"] != "https://example.test/feed" for s in list_resp.json())
 
     def test_delete_source_not_found(self, output_dir, subscriptions_yaml, tmp_path):
         db = tmp_path / "test.db"
@@ -423,11 +423,33 @@ class TestSourcesAPI:
         client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
         client.post("/api/sources/import-yaml")
         resp = client.put(
-            "/api/sources/test-source",
+            "/api/sources/https://example.test/feed",
             json={"selectors": [{"item_container": "div.post", "url": "a.link"}]},
         )
         assert resp.status_code == 200
         assert resp.json()["selectors"] == [{"item_container": "div.post", "url": "a.link"}]
+
+    def test_update_source_selectors_syncs_yaml(self, output_dir, subscriptions_yaml, tmp_path):
+        """Frontend selector update should sync back to the YAML file."""
+        import yaml
+
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
+        client.post("/api/sources/import-yaml")
+        resp = client.put(
+            "/api/sources/https://example.test/feed",
+            json={"selectors": [{"item_container": "div.new", "url": "a.new"}]},
+        )
+        assert resp.status_code == 200
+
+        # Verify YAML file was updated
+        with subscriptions_yaml.open(encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        sources = data["sources"]
+        assert len(sources) >= 1
+        match = [s for s in sources if s["url"] == "https://example.test/feed"]
+        assert len(match) == 1
+        assert match[0]["selectors"] == [{"item_container": "div.new", "url": "a.new"}]
 
     def test_list_sources_includes_llm_selectors(self, output_dir, tmp_path):
         db = tmp_path / "test.db"
@@ -452,7 +474,7 @@ class TestSourcesAPI:
         resp = client.get("/api/sources")
         assert resp.status_code == 200
         data = resp.json()
-        source = next(s for s in data if s["source_key"] == "Example")
+        source = next(s for s in data if s["source_key"] == "https://www.example.com/articles")
         assert source["llm_selectors"] == [{"item_container": "div.item", "url": "a.link"}]
 
     def test_list_sources_no_llm_selectors_for_rss(self, output_dir, subscriptions_yaml, tmp_path):
@@ -466,7 +488,7 @@ class TestSourcesAPI:
         resp = client.get("/api/sources")
         assert resp.status_code == 200
         data = resp.json()
-        rss_source = next(s for s in data if s["source_key"] == "test-source")
+        rss_source = next(s for s in data if s["source_key"] == "https://example.test/feed")
         assert rss_source["llm_selectors"] is None
 
     def test_update_llm_selectors(self, output_dir, tmp_path):
@@ -486,7 +508,7 @@ class TestSourcesAPI:
         )
         resp = client.put(
             "/api/sources/llm-selectors",
-            json={"source_key": "Example", "selectors": [{"item_container": "article", "url": "a", "title": "h2"}]},
+            json={"source_key": "https://www.example.com/articles", "selectors": [{"item_container": "article", "url": "a", "title": "h2"}]},
         )
         assert resp.status_code == 200
         assert resp.json()["updated"] is True
@@ -638,7 +660,7 @@ class TestReextractSelectorsAPI:
             mock_extractor.generate_list_item_selectors = AsyncMock(return_value=fake_selectors)
             mock_extractor_cls.return_value = mock_extractor
 
-            resp = client.post("/api/sources/reextract-selectors", json={"source_key": "Example"})
+            resp = client.post("/api/sources/reextract-selectors", json={"source_key": "https://www.example.com/articles"})
             assert resp.status_code == 200
             data = resp.json()
             assert data["site_name"] == "www.example.com"
@@ -661,7 +683,7 @@ class TestReextractSelectorsAPI:
             "/api/sources",
             json={"source_type": "rss", "url": "https://example.test/feed", "name": "RSS Source"},
         )
-        resp = client.post("/api/sources/reextract-selectors", json={"source_key": "RSS Source"})
+        resp = client.post("/api/sources/reextract-selectors", json={"source_key": "https://example.test/feed"})
         assert resp.status_code == 400
 
     def test_reextract_fetch_failure_returns_502(self, output_dir, tmp_path):
@@ -682,7 +704,7 @@ class TestReextractSelectorsAPI:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            resp = client.post("/api/sources/reextract-selectors", json={"source_key": "Dead"})
+            resp = client.post("/api/sources/reextract-selectors", json={"source_key": "https://unreachable.test/"})
             assert resp.status_code == 502
 
     def test_reextract_llm_returns_empty(self, output_dir, tmp_path):
@@ -719,6 +741,6 @@ class TestReextractSelectorsAPI:
             mock_extractor.generate_list_item_selectors = AsyncMock(return_value=[])
             mock_extractor_cls.return_value = mock_extractor
 
-            resp = client.post("/api/sources/reextract-selectors", json={"source_key": "Blog"})
+            resp = client.post("/api/sources/reextract-selectors", json={"source_key": "https://www.example.com/blog"})
             assert resp.status_code == 200
             assert resp.json()["selectors"] == []

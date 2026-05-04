@@ -31,6 +31,7 @@ class ArticleRepository:
         return ArticleModel(
             article_id=item.id,
             vector_id=item.id,
+            source_key=item.metadata.get("source_key", item.source),
             crawled_at=item.collected_at,
             published_at=item.published_at,
             content=item.content,
@@ -144,12 +145,7 @@ class ArticleRepository:
         if stmt is None:
             stmt = select(ArticleModel)
         if source:
-            stmt = stmt.where(
-                or_(
-                    ArticleModel.source == source,
-                    text("json_extract(extra_metadata, '$.source_key') = :source_key").bindparams(source_key=source),
-                )
-            )
+            stmt = stmt.where(ArticleModel.source_key == source)
         if tag:
             stmt = stmt.where(
                 or_(
@@ -254,8 +250,25 @@ class ArticleRepository:
 
     def get_last_crawl_time(self, source: str, feed_url: str) -> datetime | None:
         """Get the most recent crawl time for a given source and feed URL."""
-        stmt = select(func.max(ArticleModel.crawled_at)).where(ArticleModel.source == source)
+        stmt = select(func.max(ArticleModel.crawled_at)).where(ArticleModel.source_key == source)
         if feed_url:
             stmt = stmt.where(ArticleModel.extra_metadata["feed_url"].as_string() == feed_url)
         rows = list(self._session.execute(stmt).scalars().all())
         return rows[0] if rows and rows[0] is not None else None
+
+    def get_distinct_sources(self) -> list[str]:
+        """Get distinct source keys that have at least one article."""
+        rows = self._session.execute(
+            select(ArticleModel.source_key).distinct().order_by(ArticleModel.source_key.asc())
+        ).scalars().all()
+        return list(rows)
+
+    def get_distinct_sources_with_counts(self) -> list[tuple[str, int]]:
+        """Get distinct sources with their article counts."""
+        rows = self._session.execute(
+            select(ArticleModel.source_key, func.count())
+            .select_from(ArticleModel)
+            .group_by(ArticleModel.source_key)
+            .order_by(ArticleModel.source_key.asc())
+        ).all()
+        return [(r[0], r[1]) for r in rows]

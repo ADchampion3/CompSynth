@@ -13,11 +13,20 @@ from comp_synth.api.schemas import (
     ArticleStateResponse,
     ArticleStateUpdate,
     ErrorDetail,
+    InboxSourceResponse,
     TagsUpdateRequest,
 )
 from comp_synth.services.article_service import ArticleService
 
 router = APIRouter(tags=["articles"])
+
+
+@router.get("/articles/sources", response_model=list[InboxSourceResponse])
+def list_inbox_sources(
+    service: ArticleService = Depends(get_article_service),
+):
+    sources = service.list_inbox_sources()
+    return [InboxSourceResponse(source=s, article_count=c) for s, c in sources]
 
 
 @router.get("/articles", response_model=ArticlePageResponse)

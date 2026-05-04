@@ -11,6 +11,7 @@ CURRENT_SCHEMA_MIGRATION_ID = "0001_create_current_schema"
 TAGS_COLUMN_MIGRATION_ID = "0002_add_tags_column"
 BACKFILL_MIGRATION_ID = "0003_backfill_source_key_and_tags"
 SETTINGS_TABLE_MIGRATION_ID = "0004_create_settings_table"
+SOURCE_KEY_COLUMN_MIGRATION_ID = "0005_add_source_key_column"
 
 _metadata = MetaData()
 
@@ -101,6 +102,27 @@ def _run_0004_create_settings_table(conn) -> None:
     )
 
 
+def _run_0005_add_source_key_column(conn) -> None:
+    if _migration_applied(conn, SOURCE_KEY_COLUMN_MIGRATION_ID):
+        return
+    cols = {row[1] for row in conn.execute(text("PRAGMA table_info(articles)"))}
+    if "source_key" not in cols:
+        conn.execute(text("ALTER TABLE articles ADD COLUMN source_key TEXT NOT NULL DEFAULT ''"))
+    # Backfill source_key from extra_metadata if not already set
+    conn.execute(text(
+        "UPDATE articles SET source_key = COALESCE("
+        "  json_extract(extra_metadata, '$.source_key'),"
+        "  source"
+        ") WHERE source_key = ''"
+    ))
+    conn.execute(
+        insert(schema_migrations).values(
+            migration_id=SOURCE_KEY_COLUMN_MIGRATION_ID,
+            applied_at=datetime.now(),
+        )
+    )
+
+
 def bootstrap_database(engine: Engine) -> None:
     """Create current tables and record the baseline schema migration."""
     Base.metadata.create_all(engine)
@@ -116,3 +138,4 @@ def bootstrap_database(engine: Engine) -> None:
         _run_0002_add_tags_column(conn)
         _run_0003_backfill_source_key_and_tags(conn)
         _run_0004_create_settings_table(conn)
+        _run_0005_add_source_key_column(conn)

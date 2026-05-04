@@ -1,5 +1,7 @@
 """Repository for managed source configuration."""
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from sqlalchemy import func, select
@@ -72,6 +74,46 @@ class SourceRepository:
         """Get a single source by key."""
         row = self._session.get(SourceModel, source_key)
         return self._to_domain(row) if row else None
+
+    def upsert_all(self, sources: list[SourceConfig], now: datetime | None = None) -> None:
+        """Sync sources from YAML: upsert each, delete DB sources not in the list.
+
+        Existing sources get their config fields updated while preserving
+        ``created_at`` and ``archived_at`` timestamps.
+        """
+        now = now or datetime.now()
+        yaml_keys = set()
+        for source in sources:
+            yaml_keys.add(source.source_key)
+            self.save(source, now=now)
+        # Remove DB sources absent from YAML (YAML is authoritative)
+        for row in self._session.query(SourceModel).all():
+            if row.source_key not in yaml_keys:
+                self._session.delete(row)
+
+    def replace_all(self, sources: list[SourceConfig], now: datetime | None = None) -> None:
+        """Delete all sources and insert the given list. Used for force-full overwrite."""
+        now = now or datetime.now()
+        self._session.query(SourceModel).delete()
+        for source in sources:
+            raw_config = source.raw_config or {}
+            self._session.add(
+                SourceModel(
+                    source_key=source.source_key,
+                    name=source.name,
+                    source_type=source.source_type,
+                    url=source.url,
+                    enabled=1 if source.enabled else 0,
+                    selectors=source.selectors,
+                    javascript=1 if source.javascript else 0,
+                    crawl_frequency=str(raw_config.get("crawl_frequency", "manual")),
+                    priority=str(raw_config.get("priority", "normal")),
+                    archived_at=None,
+                    created_at=now,
+                    updated_at=now,
+                    raw_config=raw_config,
+                )
+            )
 
     def archive(self, source_key: str, now: datetime | None = None) -> bool:
         """Soft-delete a source by setting archived_at. Returns False if not found."""

@@ -103,6 +103,11 @@ class ArticleService:
     def get_tag_vocabulary(self) -> list[str]:
         return self._repository.get_tag_vocabulary()
 
+    def list_inbox_sources(self) -> list[tuple[str, int]]:
+        """Return distinct sources with their article counts, ordered by source name."""
+        raw = self._repository.get_distinct_sources_with_counts()
+        return sorted(raw, key=lambda x: x[0])
+
     def list_important_unread(self, limit: int = 20) -> list[ImportantArticle]:
         """Return unread articles ordered by a lightweight importance score."""
         safe_limit = max(1, min(limit, 100))

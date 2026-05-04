@@ -16,7 +16,7 @@ from comp_synth.store.models import resolve_db_path
 class SourceService:
     """Source configuration with YAML as source of truth and DB as runtime cache.
 
-    - On app startup: YAML → DB (full overwrite)
+    - On app startup: YAML → DB (upsert — preserves timestamps, adds new, removes absent)
     - On API writes: DB + export_yaml() (keep YAML in sync)
     - On API reads: from DB
     """
@@ -38,7 +38,7 @@ class SourceService:
         self._require_db()
         raw = {"type": source_type, "url": url, "enabled": enabled, "javascript": javascript, **({"name": name} if name else {}), **({"selectors": selectors} if selectors else {})}
         source = SourceConfig(
-            source_key=name or url,
+            source_key=url,
             source_type=source_type,
             url=url,
             name=name,
@@ -80,10 +80,14 @@ class SourceService:
         return self._with_source_repository(lambda repo: repo.archive(source_key))
 
     def import_yaml(self, subscriptions_path: Path | None = None) -> list[SourceConfig]:
-        """Import YAML subscriptions into the managed sources database (upsert)."""
+        """Import YAML subscriptions into the managed sources database.
+
+        Upsert: existing sources get config fields updated (timestamps preserved),
+        new sources are inserted, DB sources absent from YAML are removed.
+        """
         self._require_db()
         sources = self._read_yaml_sources(Path(subscriptions_path or self._subscriptions_path))
-        self._with_source_repository(lambda repo: [repo.save(source) for source in sources])
+        self._with_source_repository(lambda repo: repo.upsert_all(sources))
         logger.info("YAML → DB 同步完成: {count} 条", count=len(sources))
         return sources
 
@@ -163,7 +167,7 @@ class SourceService:
         source_type = str(source.get("type", "web"))
 
         return SourceConfig(
-            source_key=name or url or "unknown",
+            source_key=url or "unknown",
             source_type=source_type,
             url=url,
             name=name,

@@ -14,6 +14,7 @@ import type {
   CrawlRunDetailResponse,
   CrawlRunResponse,
   DashboardSummaryResponse,
+  InboxSourceResponse,
   ReadState,
   ReportDetailResponse,
   ReportSummaryResponse,
@@ -200,6 +201,14 @@ export function useRelatedArticles(articleId: string | undefined) {
         { article_id: articleId },
       ),
     enabled: !!articleId,
+  });
+}
+
+// Inbox sources (distinct sources that have articles, not from subscription table)
+export function useInboxSources() {
+  return useQuery({
+    queryKey: ["inbox-sources"],
+    queryFn: () => apiGet<InboxSourceResponse[]>("/articles/sources"),
   });
 }
 

@@ -98,3 +98,82 @@ def test_absence_based_patch():
     session.commit()
     assert result["model"] == "gpt-4"
     assert result["request_timeout"] == "60"
+
+
+# --- .env sync ---
+
+
+def test_sync_to_env_updates_existing_key(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("COMPSYNTH_MODEL=gpt-3.5\nCOMPSYNTH_REQUEST_TIMEOUT=30\n", encoding="utf-8")
+
+    from comp_synth.services.settings_service import _sync_to_env
+    _sync_to_env({"model": "gpt-4"}, env_path=env)
+
+    text = env.read_text(encoding="utf-8")
+    assert "COMPSYNTH_MODEL=gpt-4" in text
+    assert "COMPSYNTH_REQUEST_TIMEOUT=30" in text
+
+
+def test_sync_to_env_adds_new_key(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("COMPSYNTH_MODEL=gpt-4\n", encoding="utf-8")
+
+    from comp_synth.services.settings_service import _sync_to_env
+    _sync_to_env({"model": "gpt-4", "request_timeout": "60"}, env_path=env)
+
+    text = env.read_text(encoding="utf-8")
+    assert "COMPSYNTH_MODEL=gpt-4" in text
+    assert "COMPSYNTH_REQUEST_TIMEOUT=60" in text
+
+
+def test_sync_to_env_preserves_unmanaged_keys(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("COMPSYNTH_MODEL=gpt-4\nCOMPSYNTH_REQUEST_TIMEOUT=60\n", encoding="utf-8")
+
+    from comp_synth.services.settings_service import _sync_to_env
+
+    # Only "model" in overrides; "request_timeout" is left as-is
+    _sync_to_env({"model": "gpt-4o"}, env_path=env)
+
+    text = env.read_text(encoding="utf-8")
+    assert "COMPSYNTH_MODEL=gpt-4o" in text
+    assert "COMPSYNTH_REQUEST_TIMEOUT=60" in text
+
+
+def test_sync_to_env_removes_explicit_keys(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("COMPSYNTH_MODEL=gpt-4\nCOMPSYNTH_REQUEST_TIMEOUT=60\n", encoding="utf-8")
+
+    from comp_synth.services.settings_service import _sync_to_env
+
+    # Reset "model" → pass it in remove_keys
+    _sync_to_env({}, remove_keys={"model"}, env_path=env)
+
+    text = env.read_text(encoding="utf-8")
+    assert "COMPSYNTH_MODEL" not in text
+    assert "COMPSYNTH_REQUEST_TIMEOUT=60" in text
+
+
+def test_sync_to_env_preserves_unmanaged_lines(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("# comment\nMY_OTHER_VAR=hello\nCOMPSYNTH_MODEL=gpt-3.5\n", encoding="utf-8")
+
+    from comp_synth.services.settings_service import _sync_to_env
+    _sync_to_env({"model": "gpt-4"}, env_path=env)
+
+    text = env.read_text(encoding="utf-8")
+    assert "# comment" in text
+    assert "MY_OTHER_VAR=hello" in text
+    assert "COMPSYNTH_MODEL=gpt-4" in text
+
+
+def test_sync_to_env_creates_file_if_missing(tmp_path):
+    env = tmp_path / "subdir" / ".env"
+
+    from comp_synth.services.settings_service import _sync_to_env
+    _sync_to_env({"model": "gpt-4"}, env_path=env)
+
+    assert env.exists()
+    text = env.read_text(encoding="utf-8")
+    assert "COMPSYNTH_MODEL=gpt-4" in text
