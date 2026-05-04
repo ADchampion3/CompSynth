@@ -18,10 +18,10 @@
 名字源于它的核心能力：将多个来源的内容组合（compose）成一份综合摘要（synthesize）。对于追踪技术博客和资讯的研究人员、工程师而言，这是一款本地优先的工具——数据留在本地，配置通过 YAML 管理，不需要注册账号。
 
 <p align="center">
-  <img src="docs\assets\hello-hero.png" alt="CompSynth 文章列表视图"  width="800">
+  <img src="docs/assets/hello-hero.png" alt="CompSynth 文章列表视图"  width="800">
 </p>
 <p align="center">
-  <img src="docs\assets\Report-screenshot.png" alt="CompSynth 报告视图"  width="800">
+  <img src="docs/assets/Report-screenshot.png" alt="CompSynth 报告视图"  width="800">
 </p>
 
 <video src="docs/assets/display.mp4" width="800" controls></video>
