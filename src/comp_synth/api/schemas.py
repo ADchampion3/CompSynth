@@ -111,6 +111,7 @@ class SourceCreateRequest(BaseModel):
     name: str | None = None
     enabled: bool = True
     javascript: bool = False
+    selectors: list[dict[str, str]] | None = None
 
 
 class SourceUpdateRequest(BaseModel):
@@ -119,6 +120,7 @@ class SourceUpdateRequest(BaseModel):
     source_type: SourceType | None = None
     enabled: bool | None = None
     javascript: bool | None = None
+    selectors: list[dict[str, str]] | None = None
 
 
 # --- Source schemas ---
@@ -130,6 +132,20 @@ class SelectorField(BaseModel):
     type: str = ""
 
 
+class LlmSelectorsUpdateRequest(BaseModel):
+    source_key: str
+    selectors: list[dict[str, str]]
+
+
+class ReextractSelectorsRequest(BaseModel):
+    source_key: str
+
+
+class ReextractSelectorsResponse(BaseModel):
+    site_name: str
+    selectors: list[dict[str, str]] = Field(default_factory=list)
+
+
 class SourceResponse(BaseModel):
     source_key: str
     source_type: str
@@ -137,6 +153,7 @@ class SourceResponse(BaseModel):
     name: str | None = None
     enabled: bool = True
     selectors: list[dict[str, str]] | None = None
+    llm_selectors: list[dict[str, str]] | None = None
     javascript: bool = False
     crawl_status: SourceHealthStatus | None = None
     last_crawled_at: datetime | None = None

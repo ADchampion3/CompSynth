@@ -1,25 +1,35 @@
 """Sources API router."""
 
+from urllib.parse import urlparse
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
+from loguru import logger
 from sqlalchemy.orm import Session
 
-from comp_synth.api.deps import get_session, get_source_service
+from comp_synth.api.deps import get_schema_store, get_session, get_source_service
 from comp_synth.api.schemas import (
     ErrorDetail,
+    LlmSelectorsUpdateRequest,
+    ReextractSelectorsRequest,
+    ReextractSelectorsResponse,
     SourceCreateRequest,
     SourceResponse,
     SourceUpdateRequest,
 )
+from comp_synth.crawlers.extractors import DOMExtractor
+from comp_synth.schema.site_chema import SiteSchema
 from comp_synth.services.source_service import SourceService
 from comp_synth.store.repositories.source_crawl_outcome_repository import (
     SourceCrawlOutcomeRepository,
 )
+from comp_synth.store.schema_store import SchemaStore
 
 router = APIRouter(tags=["sources"])
 
 
-def _source_to_response(source, health=None) -> SourceResponse:
+def _source_to_response(source, health=None, llm_selectors=None) -> SourceResponse:
     data = dict(
         source_key=source.source_key,
         source_type=source.source_type,
@@ -27,6 +37,7 @@ def _source_to_response(source, health=None) -> SourceResponse:
         name=source.name,
         enabled=source.enabled,
         selectors=source.selectors,
+        llm_selectors=llm_selectors,
         javascript=source.javascript,
     )
     if health is not None:
@@ -38,10 +49,15 @@ def _source_to_response(source, health=None) -> SourceResponse:
     return SourceResponse(**data)
 
 
+def _site_name_from_url(url: str) -> str:
+    return urlparse(url).netloc
+
+
 @router.get("/sources", response_model=list[SourceResponse])
 def list_sources(
     service: SourceService = Depends(get_source_service),
     session: Session = Depends(get_session),
+    schema_store: SchemaStore = Depends(get_schema_store),
 ):
     sources = service.list_sources()
     outcome_repo = SourceCrawlOutcomeRepository(session)
@@ -52,7 +68,12 @@ def list_sources(
     result = []
     for s in sources:
         health = health_by_key.get(s.source_key)
-        result.append(_source_to_response(s, health=health))
+        llm_selectors = None
+        if s.source_type in ("web", "javascript"):
+            schema = schema_store.get(_site_name_from_url(s.url))
+            if schema and schema.selectors:
+                llm_selectors = schema.selectors
+        result.append(_source_to_response(s, health=health, llm_selectors=llm_selectors))
     return result
 
 
@@ -77,11 +98,80 @@ def create_source(body: SourceCreateRequest, service: SourceService = Depends(ge
             name=body.name,
             enabled=body.enabled,
             javascript=body.javascript,
+            selectors=body.selectors,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     _sync_yaml(service)
     return _source_to_response(source)
+
+
+@router.post(
+    "/sources/reextract-selectors",
+    response_model=ReextractSelectorsResponse,
+)
+async def reextract_selectors(
+    body: ReextractSelectorsRequest,
+    service: SourceService = Depends(get_source_service),
+    schema_store: SchemaStore = Depends(get_schema_store),
+):
+    sources = service.list_sources()
+    source = next((s for s in sources if s.source_key == body.source_key), None)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if source.source_type not in ("web", "javascript"):
+        raise HTTPException(status_code=400, detail="Only web/javascript sources support selector extraction")
+
+    site_name = _site_name_from_url(source.url)
+
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            resp = await client.get(source.url, headers={"User-Agent": "CompSynth/1.0"})
+            resp.raise_for_status()
+            html = resp.text
+    except httpx.HTTPError as exc:
+        logger.warning("Failed to fetch {} for reextract: {}", source.url, exc)
+        raise HTTPException(status_code=502, detail=f"Failed to fetch source page: {exc}") from exc
+
+    extractor = DOMExtractor()
+    selectors = await extractor.generate_list_item_selectors(html)
+
+    if selectors:
+        existing = schema_store.get(site_name)
+        if existing:
+            schema_store.update_selectors(site_name, selectors)
+        else:
+            schema_store.save(SiteSchema(
+                site_name=site_name,
+                site_url=source.url,
+                selectors=selectors,
+            ))
+        schema_store.mark_llm_called(site_name)
+
+    return ReextractSelectorsResponse(site_name=site_name, selectors=selectors or [])
+
+
+@router.put("/sources/llm-selectors")
+def update_llm_selectors(
+    body: LlmSelectorsUpdateRequest,
+    service: SourceService = Depends(get_source_service),
+    schema_store: SchemaStore = Depends(get_schema_store),
+):
+    sources = service.list_sources()
+    source = next((s for s in sources if s.source_key == body.source_key), None)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    site_name = _site_name_from_url(source.url)
+    existing = schema_store.get(site_name)
+    if existing:
+        schema_store.update_selectors(site_name, body.selectors)
+    else:
+        schema_store.save(SiteSchema(
+            site_name=site_name,
+            site_url=source.url,
+            selectors=body.selectors,
+        ))
+    return {"updated": True, "site_name": site_name}
 
 
 @router.put("/sources/{source_key}", response_model=SourceResponse)

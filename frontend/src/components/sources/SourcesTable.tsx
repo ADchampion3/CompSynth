@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { SourceResponse } from "../../api/types";
 import { useUpdateSource, useDeleteSource } from "../../api/hooks";
 import { safeHref } from "../../api/client";
 import { formatRelativeTime, truncate } from "../../lib/format";
+import SelectorsEditor from "./SelectorsEditor";
 
 const STATUS_CFG: Record<string, { bg: string; text: string; label: string }> = {
   healthy: { bg: "bg-ok-muted", text: "text-ok", label: "Healthy" },
@@ -56,6 +57,7 @@ export default function SourcesTable({
   const deleteSource = useDeleteSource();
   const updateSource = useUpdateSource();
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   const toggleEnabled = (source: SourceResponse) => {
     updateSource.mutate({
@@ -101,7 +103,8 @@ export default function SourcesTable({
         </thead>
         <tbody className="divide-y divide-rule">
           {sources.map((source) => (
-            <tr key={source.source_key} className="group">
+            <Fragment key={source.source_key}>
+            <tr className="group">
               <td className="py-2.5 pr-4 font-medium text-ink">
                 {source.name ?? source.source_key}
               </td>
@@ -142,6 +145,14 @@ export default function SourcesTable({
               </td>
               <td className="py-2.5 text-right">
                 <div className="flex items-center justify-end gap-2">
+                  {source.source_type !== "rss" && (
+                    <button
+                      onClick={() => setExpandedKey(expandedKey === source.source_key ? null : source.source_key)}
+                      className={`text-xs transition-colors ${expandedKey === source.source_key ? "text-accent font-medium" : "text-ink-4 hover:text-ink"}`}
+                    >
+                      {expandedKey === source.source_key ? "Hide" : "Selectors"}
+                    </button>
+                  )}
                   {onEdit && (
                     <button
                       onClick={() => onEdit(source)}
@@ -163,6 +174,19 @@ export default function SourcesTable({
                 </div>
               </td>
             </tr>
+            {expandedKey === source.source_key && (
+              <tr>
+                <td colSpan={6} className="px-4 pb-3 pt-0">
+                  <div className="rounded border border-rule bg-paper p-3">
+                    <h3 className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 mb-2">
+                      CSS Selectors
+                    </h3>
+                    <SelectorsEditor source={source} />
+                  </div>
+                </td>
+              </tr>
+            )}
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -209,6 +233,14 @@ export default function SourcesTable({
               <CrawlHealthBadge source={source} />
             </div>
             <div className="flex items-center gap-3 mt-2">
+              {source.source_type !== "rss" && (
+                <button
+                  onClick={() => setExpandedKey(expandedKey === source.source_key ? null : source.source_key)}
+                  className={`text-xs ${expandedKey === source.source_key ? "text-accent font-medium" : "text-ink-4 hover:text-ink"}`}
+                >
+                  {expandedKey === source.source_key ? "Hide selectors" : "Selectors"}
+                </button>
+              )}
               {onEdit && (
                 <button
                   onClick={() => onEdit(source)}
@@ -228,6 +260,14 @@ export default function SourcesTable({
                 {confirmKey === source.source_key ? "Confirm?" : "Delete"}
               </button>
             </div>
+            {expandedKey === source.source_key && (
+              <div className="mt-2 rounded border border-rule bg-paper p-3">
+                <h3 className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 mb-2">
+                  CSS Selectors
+                </h3>
+                <SelectorsEditor source={source} />
+              </div>
+            )}
           </div>
         ))}
       </div>

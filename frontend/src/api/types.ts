@@ -86,6 +86,7 @@ export interface SourceResponse {
   name: string | null;
   enabled: boolean;
   selectors: Record<string, string>[] | null;
+  llm_selectors: Record<string, string>[] | null;
   javascript: boolean;
   crawl_status: SourceHealthStatus | null;
   last_crawled_at: string | null;
@@ -100,6 +101,7 @@ export interface SourceCreateRequest {
   name?: string;
   enabled?: boolean;
   javascript?: boolean;
+  selectors?: Record<string, string>[] | null;
 }
 
 export interface SourceUpdateRequest {
@@ -108,6 +110,7 @@ export interface SourceUpdateRequest {
   source_type?: "rss" | "web" | "javascript";
   enabled?: boolean;
   javascript?: boolean;
+  selectors?: Record<string, string>[] | null;
 }
 
 export interface CrawlRunResponse {

@@ -25,6 +25,7 @@ from comp_synth.store.repositories.settings_repository import SettingsRepository
 from comp_synth.store.repositories.source_crawl_outcome_repository import (
     SourceCrawlOutcomeRepository,
 )
+from comp_synth.store.schema_store import SchemaStore
 
 _engine = None
 _session_factory: sessionmaker | None = None
@@ -111,3 +112,13 @@ def get_dashboard_service(session: Session = Depends(get_session)) -> DashboardS
 
 def get_settings_service(session: Session = Depends(get_session)) -> SettingsService:
     return SettingsService(repository=SettingsRepository(session))
+
+
+_schema_store: SchemaStore | None = None
+
+
+def get_schema_store() -> SchemaStore:
+    global _schema_store
+    if _schema_store is None:
+        _schema_store = SchemaStore()
+    return _schema_store

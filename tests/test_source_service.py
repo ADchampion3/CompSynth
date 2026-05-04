@@ -170,3 +170,31 @@ def test_delete_source(db_path):
 def test_delete_source_not_found(db_path):
     service = SourceService(subscriptions_path=db_path.parent / "sub.yaml", source_db_path=db_path)
     assert service.delete_source("nonexistent") is False
+
+
+def test_update_source_selectors(db_path):
+    service = SourceService(subscriptions_path=db_path.parent / "sub.yaml", source_db_path=db_path)
+    service.create_source(source_type="web", url="https://example.test/", name="SelTest")
+    updated = service.update_source("SelTest", selectors=[{"item_container": "article", "url": "a", "title": "h2"}])
+    assert updated is not None
+    assert updated.selectors == [{"item_container": "article", "url": "a", "title": "h2"}]
+
+    reloaded = service.list_sources()
+    assert reloaded[0].selectors == [{"item_container": "article", "url": "a", "title": "h2"}]
+
+
+def test_selectors_yaml_roundtrip(db_path):
+    service = SourceService(subscriptions_path=db_path.parent / "sub.yaml", source_db_path=db_path)
+    service.create_source(source_type="web", url="https://example.test/", name="Roundtrip")
+    new_selectors = [{"item_container": "div.post", "url": "a.link", "title": "h2.title"}]
+    service.update_source("Roundtrip", selectors=new_selectors)
+
+    exported = db_path.parent / "exported.yaml"
+    service.export_yaml(exported)
+
+    reloaded_svc = SourceService(subscriptions_path=exported, source_db_path=db_path.parent / "reload.db")
+    reloaded_svc.import_yaml()
+    sources = reloaded_svc.list_sources()
+    match = [s for s in sources if s.source_key == "Roundtrip"]
+    assert len(match) == 1
+    assert match[0].selectors == new_selectors

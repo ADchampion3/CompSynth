@@ -34,16 +34,18 @@ class SourceService:
             return self._with_source_repository(lambda repo: repo.list())
         return self._read_yaml_sources(self._subscriptions_path)
 
-    def create_source(self, source_type: str, url: str, name: str | None = None, enabled: bool = True, javascript: bool = False) -> SourceConfig:
+    def create_source(self, source_type: str, url: str, name: str | None = None, enabled: bool = True, javascript: bool = False, selectors: list[dict[str, str]] | None = None) -> SourceConfig:
         self._require_db()
+        raw = {"type": source_type, "url": url, "enabled": enabled, "javascript": javascript, **({"name": name} if name else {}), **({"selectors": selectors} if selectors else {})}
         source = SourceConfig(
             source_key=name or url,
             source_type=source_type,
             url=url,
             name=name,
             enabled=enabled,
+            selectors=selectors,
             javascript=javascript,
-            raw_config={"type": source_type, "url": url, "enabled": enabled, "javascript": javascript, **({"name": name} if name else {})},
+            raw_config=raw,
         )
         self._with_source_repository(lambda repo: repo.save(source))
         return source
@@ -57,13 +59,16 @@ class SourceService:
         if existing is None:
             return None
         raw = dict(existing.raw_config or {})
+        selectors = fields.get("selectors", existing.selectors)
+        if "selectors" in fields:
+            raw["selectors"] = selectors
         updated = SourceConfig(
             source_key=source_key,
             source_type=fields.get("source_type", existing.source_type),
             url=fields.get("url", existing.url),
             name=fields.get("name", existing.name),
             enabled=fields.get("enabled", existing.enabled),
-            selectors=existing.selectors,
+            selectors=selectors,
             javascript=fields.get("javascript", existing.javascript),
             raw_config=raw,
         )

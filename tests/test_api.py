@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,16 +17,19 @@ from comp_synth.api.app import create_app
 from comp_synth.api.deps import (
     get_crawl_service,
     get_report_service,
+    get_schema_store,
     get_session,
     get_source_service,
 )
 from comp_synth.api.routers.tags import invalidate_tag_cache
 from comp_synth.schema.content_item import ContentItem
+from comp_synth.schema.site_chema import SiteSchema
 from comp_synth.services.crawl_service import CrawlService
 from comp_synth.services.report_service import ReportService
 from comp_synth.services.source_service import SourceService
 from comp_synth.store.migrations import bootstrap_database
 from comp_synth.store.repositories.article_repository import ArticleRepository
+from comp_synth.store.schema_store import SchemaStore
 
 
 def _make_engine():
@@ -117,6 +121,7 @@ def _make_test_client(
     crawl_service: CrawlService | None = None,
     db_path: Path | None = None,
     engine=None,
+    schema_store: SchemaStore | None = None,
 ) -> TestClient:
     engine = engine or _make_engine()
     app = create_app()
@@ -132,6 +137,9 @@ def _make_test_client(
     app.dependency_overrides[get_source_service] = lambda: source_svc
     app.dependency_overrides[get_report_service] = lambda: report_svc
     app.dependency_overrides[get_crawl_service] = lambda: crawl_svc
+
+    if schema_store is not None:
+        app.dependency_overrides[get_schema_store] = lambda: schema_store
 
     return TestClient(app)
 
@@ -394,6 +402,113 @@ class TestSourcesAPI:
         resp = client.delete("/api/sources/nonexistent")
         assert resp.status_code == 404
 
+    def test_create_source_with_selectors(self, output_dir, subscriptions_yaml, tmp_path):
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
+        client.post("/api/sources/import-yaml")
+        resp = client.post(
+            "/api/sources",
+            json={
+                "source_type": "web",
+                "url": "https://sel.test/",
+                "name": "SelSource",
+                "selectors": [{"item_container": "article", "url": "a", "title": "h2"}],
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["selectors"] == [{"item_container": "article", "url": "a", "title": "h2"}]
+
+    def test_update_source_selectors(self, output_dir, subscriptions_yaml, tmp_path):
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
+        client.post("/api/sources/import-yaml")
+        resp = client.put(
+            "/api/sources/test-source",
+            json={"selectors": [{"item_container": "div.post", "url": "a.link"}]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["selectors"] == [{"item_container": "div.post", "url": "a.link"}]
+
+    def test_list_sources_includes_llm_selectors(self, output_dir, tmp_path):
+        db = tmp_path / "test.db"
+        schema_db = tmp_path / "schemas.db"
+        with patch("comp_synth.store.schema_store.settings") as mock_settings:
+            mock_settings.site_schema_db_path = schema_db
+            store = SchemaStore()
+        store.save(SiteSchema(
+            site_name="www.example.com",
+            site_url="https://www.example.com/articles",
+            selectors=[{"item_container": "div.item", "url": "a.link"}],
+        ))
+        client = _make_test_client(output_dir, db_path=db, schema_store=store)
+        client.post(
+            "/api/sources",
+            json={
+                "source_type": "web",
+                "url": "https://www.example.com/articles",
+                "name": "Example",
+            },
+        )
+        resp = client.get("/api/sources")
+        assert resp.status_code == 200
+        data = resp.json()
+        source = next(s for s in data if s["source_key"] == "Example")
+        assert source["llm_selectors"] == [{"item_container": "div.item", "url": "a.link"}]
+
+    def test_list_sources_no_llm_selectors_for_rss(self, output_dir, subscriptions_yaml, tmp_path):
+        db = tmp_path / "test.db"
+        schema_db = tmp_path / "schemas.db"
+        with patch("comp_synth.store.schema_store.settings") as mock_settings:
+            mock_settings.site_schema_db_path = schema_db
+            store = SchemaStore()
+        client = _make_test_client(output_dir, subscriptions_yaml, db_path=db, schema_store=store)
+        client.post("/api/sources/import-yaml")
+        resp = client.get("/api/sources")
+        assert resp.status_code == 200
+        data = resp.json()
+        rss_source = next(s for s in data if s["source_key"] == "test-source")
+        assert rss_source["llm_selectors"] is None
+
+    def test_update_llm_selectors(self, output_dir, tmp_path):
+        db = tmp_path / "test.db"
+        schema_db = tmp_path / "schemas.db"
+        with patch("comp_synth.store.schema_store.settings") as mock_settings:
+            mock_settings.site_schema_db_path = schema_db
+            store = SchemaStore()
+        client = _make_test_client(output_dir, db_path=db, schema_store=store)
+        client.post(
+            "/api/sources",
+            json={
+                "source_type": "web",
+                "url": "https://www.example.com/articles",
+                "name": "Example",
+            },
+        )
+        resp = client.put(
+            "/api/sources/llm-selectors",
+            json={"source_key": "Example", "selectors": [{"item_container": "article", "url": "a", "title": "h2"}]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["updated"] is True
+        assert resp.json()["site_name"] == "www.example.com"
+
+        schema = store.get("www.example.com")
+        assert schema is not None
+        assert schema.selectors == [{"item_container": "article", "url": "a", "title": "h2"}]
+
+    def test_update_llm_selectors_source_not_found(self, output_dir, tmp_path):
+        db = tmp_path / "test.db"
+        schema_db = tmp_path / "schemas.db"
+        with patch("comp_synth.store.schema_store.settings") as mock_settings:
+            mock_settings.site_schema_db_path = schema_db
+            store = SchemaStore()
+        client = _make_test_client(output_dir, db_path=db, schema_store=store)
+        resp = client.put(
+            "/api/sources/llm-selectors",
+            json={"source_key": "nonexistent", "selectors": [{"item_container": "article"}]},
+        )
+        assert resp.status_code == 404
+
 
 # --- Crawls ---
 
@@ -482,3 +597,128 @@ class TestDashboardAPI:
         data = resp.json()
         assert data["article_count"] == 2
         assert data["important_unread_count"] >= 0
+
+
+# --- Re-extract Selectors ---
+
+
+class TestReextractSelectorsAPI:
+    def test_reextract_success(self, output_dir, tmp_path):
+        db = tmp_path / "test.db"
+        schema_db = tmp_path / "schemas.db"
+        with patch("comp_synth.store.schema_store.settings") as mock_settings:
+            mock_settings.site_schema_db_path = schema_db
+            store = SchemaStore()
+        client = _make_test_client(output_dir, db_path=db, schema_store=store)
+        client.post(
+            "/api/sources",
+            json={
+                "source_type": "web",
+                "url": "https://www.example.com/articles",
+                "name": "Example",
+            },
+        )
+        fake_selectors = [{"item_container": "article.post", "url": "a", "title": "h2"}]
+        with (
+            patch("comp_synth.api.routers.sources.httpx.AsyncClient") as mock_client_cls,
+            patch(
+                "comp_synth.api.routers.sources.DOMExtractor",
+            ) as mock_extractor_cls,
+        ):
+            mock_resp = AsyncMock()
+            mock_resp.text = "<html><body><article class='post'><a>link</a><h2>title</h2></article></body></html>"
+            mock_resp.raise_for_status = lambda: None
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_resp)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            mock_extractor = AsyncMock()
+            mock_extractor.generate_list_item_selectors = AsyncMock(return_value=fake_selectors)
+            mock_extractor_cls.return_value = mock_extractor
+
+            resp = client.post("/api/sources/reextract-selectors", json={"source_key": "Example"})
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["site_name"] == "www.example.com"
+            assert data["selectors"] == fake_selectors
+
+        schema = store.get("www.example.com")
+        assert schema is not None
+        assert schema.selectors == fake_selectors
+
+    def test_reextract_source_not_found(self, output_dir, tmp_path):
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, db_path=db)
+        resp = client.post("/api/sources/reextract-selectors", json={"source_key": "nonexistent"})
+        assert resp.status_code == 404
+
+    def test_reextract_rss_source_returns_400(self, output_dir, tmp_path):
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, db_path=db)
+        client.post(
+            "/api/sources",
+            json={"source_type": "rss", "url": "https://example.test/feed", "name": "RSS Source"},
+        )
+        resp = client.post("/api/sources/reextract-selectors", json={"source_key": "RSS Source"})
+        assert resp.status_code == 400
+
+    def test_reextract_fetch_failure_returns_502(self, output_dir, tmp_path):
+        db = tmp_path / "test.db"
+        client = _make_test_client(output_dir, db_path=db)
+        client.post(
+            "/api/sources",
+            json={
+                "source_type": "web",
+                "url": "https://unreachable.test/",
+                "name": "Dead",
+            },
+        )
+        with patch("comp_synth.api.routers.sources.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            resp = client.post("/api/sources/reextract-selectors", json={"source_key": "Dead"})
+            assert resp.status_code == 502
+
+    def test_reextract_llm_returns_empty(self, output_dir, tmp_path):
+        db = tmp_path / "test.db"
+        schema_db = tmp_path / "schemas.db"
+        with patch("comp_synth.store.schema_store.settings") as mock_settings:
+            mock_settings.site_schema_db_path = schema_db
+            store = SchemaStore()
+        client = _make_test_client(output_dir, db_path=db, schema_store=store)
+        client.post(
+            "/api/sources",
+            json={
+                "source_type": "web",
+                "url": "https://www.example.com/blog",
+                "name": "Blog",
+            },
+        )
+        with (
+            patch("comp_synth.api.routers.sources.httpx.AsyncClient") as mock_client_cls,
+            patch(
+                "comp_synth.api.routers.sources.DOMExtractor",
+            ) as mock_extractor_cls,
+        ):
+            mock_resp = AsyncMock()
+            mock_resp.text = "<html><body></body></html>"
+            mock_resp.raise_for_status = lambda: None
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_resp)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            mock_extractor = AsyncMock()
+            mock_extractor.generate_list_item_selectors = AsyncMock(return_value=[])
+            mock_extractor_cls.return_value = mock_extractor
+
+            resp = client.post("/api/sources/reextract-selectors", json={"source_key": "Blog"})
+            assert resp.status_code == 200
+            assert resp.json()["selectors"] == []

@@ -255,6 +255,40 @@ export function useDeleteSource() {
   });
 }
 
+export function useUpdateLlmSelectors() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      key,
+      selectors,
+    }: {
+      key: string;
+      selectors: Record<string, string>[];
+    }) =>
+      apiPut<{ updated: boolean; site_name: string }>(
+        "/sources/llm-selectors",
+        { source_key: key, selectors },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sources"] });
+    },
+  });
+}
+
+export function useReextractSelectors() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) =>
+      apiPost<{ site_name: string; selectors: Record<string, string>[] }>(
+        "/sources/reextract-selectors",
+        { source_key: key },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sources"] });
+    },
+  });
+}
+
 // Crawls
 export function useStartCrawl() {
   const qc = useQueryClient();
