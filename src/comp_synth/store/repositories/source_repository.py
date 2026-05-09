@@ -76,20 +76,15 @@ class SourceRepository:
         return self._to_domain(row) if row else None
 
     def upsert_all(self, sources: list[SourceConfig], now: datetime | None = None) -> None:
-        """Sync sources from YAML: upsert each, delete DB sources not in the list.
+        """Sync sources from YAML: upsert each, keep DB-only sources.
 
-        Existing sources get their config fields updated while preserving
-        ``created_at`` and ``archived_at`` timestamps.
+        - YAML entry exists in DB → update
+        - YAML entry not in DB → insert
+        - DB entry not in YAML → preserved as-is
         """
         now = now or datetime.now()
-        yaml_keys = set()
         for source in sources:
-            yaml_keys.add(source.source_key)
             self.save(source, now=now)
-        # Remove DB sources absent from YAML (YAML is authoritative)
-        for row in self._session.query(SourceModel).all():
-            if row.source_key not in yaml_keys:
-                self._session.delete(row)
 
     def replace_all(self, sources: list[SourceConfig], now: datetime | None = None) -> None:
         """Delete all sources and insert the given list. Used for force-full overwrite."""
