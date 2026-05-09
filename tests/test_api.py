@@ -341,13 +341,13 @@ class TestSourcesAPI:
         assert resp.status_code == 200
         assert resp.json()["imported"] >= 1
 
-    def test_export_yaml(self, output_dir, subscriptions_yaml, tmp_path):
+    def test_export_yaml_removed(self, output_dir, subscriptions_yaml, tmp_path):
+        """Export-yaml endpoint is removed: frontend no longer writes to YAML."""
         db = tmp_path / "test.db"
         client = _make_test_client(output_dir, subscriptions_yaml, db_path=db)
         client.post("/api/sources/import-yaml")
         export_resp = client.get("/api/sources/export-yaml")
-        assert export_resp.status_code == 200
-        assert "sources:" in export_resp.text
+        assert export_resp.status_code == 405
 
     def test_create_source(self, output_dir, subscriptions_yaml, tmp_path):
         db = tmp_path / "test.db"
@@ -423,8 +423,8 @@ class TestSourcesAPI:
         assert resp.status_code == 200
         assert resp.json()["selectors"] == [{"item_container": "div.post", "url": "a.link"}]
 
-    def test_update_source_selectors_syncs_yaml(self, output_dir, subscriptions_yaml, tmp_path):
-        """Frontend selector update should sync back to the YAML file."""
+    def test_update_source_selectors_no_yaml_sync(self, output_dir, subscriptions_yaml, tmp_path):
+        """Frontend selector update should NOT sync back to the YAML file."""
         import yaml
 
         db = tmp_path / "test.db"
@@ -436,14 +436,13 @@ class TestSourcesAPI:
         )
         assert resp.status_code == 200
 
-        # Verify YAML file was updated
+        # Verify YAML file was NOT modified
         with subscriptions_yaml.open(encoding="utf-8") as f:
             data = yaml.safe_load(f)
         sources = data["sources"]
-        assert len(sources) >= 1
         match = [s for s in sources if s["url"] == "https://example.test/feed"]
         assert len(match) == 1
-        assert match[0]["selectors"] == [{"item_container": "div.new", "url": "a.new"}]
+        assert match[0].get("selectors") is None
 
     def test_list_sources_includes_llm_selectors(self, output_dir, tmp_path):
         db = tmp_path / "test.db"

@@ -202,8 +202,8 @@ def test_selectors_yaml_roundtrip(db_path):
     assert match[0].selectors == new_selectors
 
 
-def test_import_yaml_full_overwrite_removes_extra_source(tmp_path):
-    """YAML full overwrite: DB sources not in YAML are removed."""
+def test_import_yaml_preserves_db_only_sources(tmp_path):
+    """YAML import preserves DB sources not in YAML."""
     subscriptions = tmp_path / "subscriptions.yaml"
     subscriptions.write_text(
         """
@@ -225,11 +225,13 @@ sources:
 
     assert len(service.list_sources()) == 2
 
-    # Re-import from YAML: should full overwrite, removing the extra source
+    # Re-import from YAML: DB-only source is preserved
     service.import_yaml()
     sources = service.list_sources()
-    assert len(sources) == 1
-    assert sources[0].source_key == "https://keep.test/feed.xml"
+    assert len(sources) == 2
+    keys = {s.source_key for s in sources}
+    assert "https://keep.test/feed.xml" in keys
+    assert "https://extra.test/" in keys
 
 
 def test_import_yaml_name_change_no_duplicate(tmp_path):

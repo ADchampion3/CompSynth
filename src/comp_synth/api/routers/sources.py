@@ -4,7 +4,6 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import PlainTextResponse
 from loguru import logger
 from sqlalchemy.orm import Session
 
@@ -77,17 +76,6 @@ def list_sources(
     return result
 
 
-def _sync_yaml(service: SourceService) -> None:
-    """Sync database sources to subscriptions.yaml."""
-    try:
-        path = service.export_yaml()
-        logger.info("YAML sync OK: {path}", path=path)
-    except ValueError as exc:
-        logger.warning("YAML sync skipped (no DB configured): {error}", error=exc)
-    except Exception as exc:
-        logger.error("YAML sync failed: {error}", error=exc)
-
-
 @router.post("/sources", response_model=SourceResponse, status_code=201)
 def create_source(body: SourceCreateRequest, service: SourceService = Depends(get_source_service)):
     try:
@@ -101,7 +89,6 @@ def create_source(body: SourceCreateRequest, service: SourceService = Depends(ge
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    _sync_yaml(service)
     return _source_to_response(source)
 
 
@@ -186,7 +173,6 @@ def update_source(
     source = service.update_source(source_key, **fields)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
-    _sync_yaml(service)
     return _source_to_response(source)
 
 
@@ -195,7 +181,6 @@ def delete_source(source_key: str, service: SourceService = Depends(get_source_s
     ok = service.delete_source(source_key)
     if not ok:
         raise HTTPException(status_code=404, detail="Source not found")
-    _sync_yaml(service)
 
 
 @router.post("/sources/import-yaml")
@@ -211,21 +196,4 @@ def import_yaml(service: SourceService = Depends(get_source_service)):
                 fix="Check that subscriptions.yaml exists and is valid.",
             ).model_dump(),
         )
-    _sync_yaml(service)
     return {"imported": len(imported)}
-
-
-@router.get("/sources/export-yaml", response_class=PlainTextResponse)
-def export_yaml(service: SourceService = Depends(get_source_service)):
-    try:
-        path = service.export_yaml()
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=ErrorDetail(
-                problem="YAML export failed",
-                cause=str(exc),
-                fix="Ensure the source database is configured.",
-            ).model_dump(),
-        )
-    return path.read_text(encoding="utf-8")

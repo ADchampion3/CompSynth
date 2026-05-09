@@ -14,10 +14,10 @@ from comp_synth.store.models import resolve_db_path
 
 
 class SourceService:
-    """Source configuration with YAML as source of truth and DB as runtime cache.
+    """Source configuration with YAML as seed and DB as runtime store.
 
-    - On app startup: YAML → DB (upsert — preserves timestamps, adds new, removes absent)
-    - On API writes: DB + export_yaml() (keep YAML in sync)
+    - On app startup: YAML → DB (upsert — preserves timestamps, adds new, keeps DB-only)
+    - On API writes: DB only
     - On API reads: from DB
     """
 
@@ -83,7 +83,7 @@ class SourceService:
         """Import YAML subscriptions into the managed sources database.
 
         Upsert: existing sources get config fields updated (timestamps preserved),
-        new sources are inserted, DB sources absent from YAML are removed.
+        new sources are inserted. DB-only sources (not in YAML) are preserved.
         """
         self._require_db()
         sources = self._read_yaml_sources(Path(subscriptions_path or self._subscriptions_path))
