@@ -24,10 +24,8 @@ class Settings(BaseSettings):
     model: str = "gpt-4o-mini"
 
     # 存储
-    chroma_persist_dir: Path = Path("./data/chroma")
     crawl_db_path: Path = Path("./data/crawl_state.db")
     site_schema_db_path: Path = Path("./data/site_schemas.db")
-    vector_ttl_days: int = 30
 
     # 爬虫
     request_timeout: int = 30

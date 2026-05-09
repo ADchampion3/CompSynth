@@ -9,7 +9,7 @@ MASKED_SENTINEL = "***configured***"
 
 SENSITIVE_FIELDS = {"openai_api_key", "anthropic_api_key"}
 
-PATH_FIELDS = {"log_dir", "data_dir", "chroma_persist_dir", "crawl_db_path", "site_schema_db_path", "subscriptions_path", "output_dir"}
+PATH_FIELDS = {"log_dir", "data_dir", "crawl_db_path", "site_schema_db_path", "subscriptions_path", "output_dir"}
 
 
 def _sync_to_env(
@@ -66,10 +66,8 @@ SETTINGS_SCHEMA = {
     "max_concurrent_requests": {"type": "integer", "group": "crawler", "label": "Max Concurrent Requests", "sensitive": False, "description": "Maximum parallel HTTP requests", "default": 5, "constraints": {"minimum": 1, "maximum": 50}},
     "list_page_time_threshold_days": {"type": "integer", "group": "crawler", "label": "List Page Time Threshold", "sensitive": False, "description": "Skip articles older than this many days", "default": 7, "constraints": {"minimum": 1, "maximum": 90}},
     "list_page_count_threshold": {"type": "integer", "group": "crawler", "label": "List Page Count Threshold", "sensitive": False, "description": "Maximum articles to extract from list pages", "default": 20, "constraints": {"minimum": 1, "maximum": 100}},
-    "vector_ttl_days": {"type": "integer", "group": "storage", "label": "Vector TTL Days", "sensitive": False, "description": "Days before vectors are cleaned up", "default": 30, "constraints": {"minimum": 1, "maximum": 365}},
     "log_dir": {"type": "string", "group": "storage", "label": "Log Directory", "sensitive": False, "description": "Directory for log files", "default": "./logs"},
     "data_dir": {"type": "string", "group": "storage", "label": "Data Directory", "sensitive": False, "description": "Root data directory", "default": "./data"},
-    "chroma_persist_dir": {"type": "string", "group": "storage", "label": "Chroma Persist Directory", "sensitive": False, "description": "ChromaDB persistence directory", "default": "./data/chroma"},
     "crawl_db_path": {"type": "string", "group": "storage", "label": "Crawl DB Path", "sensitive": False, "description": "SQLite crawl state database path", "default": "./data/crawl_state.db"},
     "subscriptions_path": {"type": "string", "group": "output", "label": "Subscriptions Path", "sensitive": False, "description": "Path to subscriptions YAML file", "default": "./subscriptions.yaml"},
     "output_dir": {"type": "string", "group": "output", "label": "Output Directory", "sensitive": False, "description": "Directory for generated reports", "default": "./output"},

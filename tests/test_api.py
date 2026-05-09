@@ -231,12 +231,6 @@ class TestArticlesAPI:
         assert resp.status_code == 200
         assert resp.json()["read_state"] == "unread"
 
-    def test_get_related_placeholder(self, output_dir):
-        client = _make_test_client(output_dir)
-        resp = client.get("/api/articles/related", params={"article_id": "some:id"})
-        assert resp.status_code == 200
-        assert resp.json()["implemented"] is False
-
     def test_list_articles_filtered_by_tag(self, output_dir):
         client, _ = _make_app_with_articles(output_dir, _sample_items())
         resp = client.get("/api/articles", params={"tag": "技术博客"})

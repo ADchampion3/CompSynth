@@ -8,7 +8,7 @@ Status: DRAFT
 
 Expand CompSynth from a local content aggregation CLI into a full information subscription and viewing system. The first complete product should let a user manage sources, run or schedule crawls, browse an article inbox, inspect article details with LLM summaries and historical context, review generated reports, and feed user preferences back into ranking and filtering.
 
-The plan keeps the existing crawler, deduplication, LLM summary, vector search, SQLite, ChromaDB, and Markdown digest pipeline. The new work adds a typed service layer, HTTP API, frontend, source health views, user reading states, report metadata, and a small scheduler boundary.
+The plan keeps the existing crawler, deduplication, LLM summary, SQLite, and Markdown digest pipeline. The new work adds a typed service layer, HTTP API, frontend, source health views, user reading states, report metadata, and a small scheduler boundary.
 
 ## Premises
 
@@ -32,7 +32,7 @@ The plan keeps the existing crawler, deduplication, LLM summary, vector search, 
 | Selector refresh | schema store + source outcome tracking | Expose stale selector warnings and manual refresh in Sources UI |
 | LLM article summary | `ContentManager._summarize_content` | Keep, but move behind an article enrichment service |
 | Topic grouping | `orchestration.nodes.summarize` | Reuse for report generation; persist topic groups instead of only returning runtime state |
-| Historical context | `VectorStore` and `ContentManager.enrich` | Expose related historical articles in article and topic detail views |
+| Historical context | `ContentManager.merge_historical_items` | Merge today's historical items into current crawl results |
 | Digest output | `orchestration.nodes.publish`, `output/digest_YYYYMMDD.md` | Keep Markdown output; add report metadata and API listing |
 | CLI entry | `src/comp_synth/main.py` | Keep CLI as a thin caller of application services |
 
@@ -57,7 +57,7 @@ The plan keeps the existing crawler, deduplication, LLM summary, vector search, 
 3. Article detail
    - Title, source, URL, published time, crawled time.
    - Summary, tags, content excerpt/full content when stored.
-   - Related historical articles from vector search.
+   - Related historical articles.
    - User note field.
 
 4. Reports
@@ -115,7 +115,7 @@ src/comp_synth/services/
         |
         v
 src/comp_synth/store/
-  SQLAlchemy repositories, migrations, Chroma/vector adapter
+  SQLAlchemy repositories, migrations
         |
         v
 src/comp_synth/orchestration/
@@ -386,7 +386,7 @@ Tasks:
 4. Add `schema_migrations` table and idempotent startup migrations.
 5. Back up SQLite before schema migration.
 6. Preserve compatibility with existing `crawl_state.db`.
-7. Define Chroma/vector mismatch behavior: article metadata remains source of truth; related results degrade gracefully when vector ids are missing.
+7. Article metadata remains source of truth in SQLite.
 
 Exit criteria:
 
@@ -490,15 +490,15 @@ Exit criteria:
 
 ### 0A: Premise Challenge
 
-The key premise is that the value is not "more articles." The value is fewer, better decisions about what to read. This changes the plan: article state, source health, ranking, and reports are first-class. A plain feed reader UI would be easier but would waste the existing LLM and vector capabilities.
+The key premise is that the value is not "more articles." The value is fewer, better decisions about what to read. This changes the plan: article state, source health, ranking, and reports are first-class. A plain feed reader UI would be easier but would waste the existing LLM capabilities.
 
-The second premise is local-first. This is correct for v1 because the repo already stores local SQLite, ChromaDB, and Markdown files. Hosted SaaS would force auth, tenancy, secret handling, and background worker decisions before the core loop is proven.
+The second premise is local-first. This is correct for v1 because the repo already stores local SQLite and Markdown files. Hosted SaaS would force auth, tenancy, secret handling, and background worker decisions before the core loop is proven.
 
 The third premise is that "reduce reading work" must be proven early. This changes milestone order: a thin importance score, important unread API, and feedback loop move into Milestones 2-4 rather than waiting for an advanced ranking phase.
 
 ### 0B: Existing Code Leverage Map
 
-See "What Already Exists." The plan reuses the crawler, content manager, vector store, LLM registry, source outcome store, and digest writer. New code should wrap these pieces rather than rewrite them.
+See "What Already Exists." The plan reuses the crawler, content manager, LLM registry, source outcome store, and digest writer. New code should wrap these pieces rather than rewrite them.
 
 ### 0C: Dream State Diagram
 
@@ -566,7 +566,7 @@ Day 30:
 |---|---|
 | Right problem | Yes: reduce reading load and preserve context |
 | Scope | Correct if v1 stays local-first |
-| Existing leverage | Strong: crawler, SQLite, vector, LLM, digest all reusable |
+| Existing leverage | Strong: crawler, SQLite, LLM, digest all reusable |
 | Main risk | Adding UI before service boundaries and state model |
 | Recommendation | Build service layer and state model first, then frontend |
 
@@ -645,7 +645,7 @@ Service Layer <-------------------- Frontend API routers
 ContentManager / Pipeline Nodes          |
   |                                      |
   v                                      |
-Crawlers + LLM Registry + VectorStore + SQLAlchemy repositories
+Crawlers + LLM Registry + SQLAlchemy repositories
 ```
 
 ### Coupling Assessment
@@ -700,7 +700,7 @@ V1 local-first decisions:
 | Article list filters | Repository + API tests | source, tag, state, date, pagination |
 | Article state mutation | Repository + API tests | read, unread, later, ignored, like |
 | Article detail | API tests | found, missing, content present/empty |
-| Related articles | Service tests | vector unavailable, no matches, matches |
+| Related articles | Service tests | no matches, matches |
 | Source import/export | Service tests | YAML compatibility, invalid source |
 | Source test | Service/API tests | RSS, web selectors, failure |
 | Crawl run | Service/API tests | success, partial failure, already running |
@@ -779,7 +779,7 @@ Target:
 | Missing subscriptions | source service startup | "Import YAML or create your first source" |
 | Source crawl fails | crawl run error | show source, cause, retry action |
 | Selector stale | zero-result health threshold | show refresh/test selector action |
-| Vector store unavailable | related endpoint error | show article without related context |
+| Related articles unavailable | endpoint error | show article without related context |
 | Report file missing | report detail read | show metadata and regenerate action |
 
 ## Decision Audit Trail

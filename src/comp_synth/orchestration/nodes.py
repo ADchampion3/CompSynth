@@ -141,21 +141,6 @@ URL: {item.url}
     return {"topic_groups": topic_groups}
 
 
-async def enrich(state: PipelineState) -> dict:
-    """委托 ContentManager 检索历史相关内容,并将新内容存入向量库"""
-    manager = state.get("content_manager")
-    topic_groups = state.get("topic_groups", [])
-    new_items = state.get("new_items", [])
-
-    if manager is None:
-        logger.warning("ContentManager not in state, skipping enrich")
-        return {"topic_groups": topic_groups}
-
-    enriched_groups = manager.enrich(topic_groups, new_items)
-
-    return {"topic_groups": enriched_groups}
-
-
 async def publish(state: PipelineState) -> dict:
     """使用 LLM 生成结构化 Markdown 报告并写入文件"""
     topic_groups = state.get("topic_groups", [])

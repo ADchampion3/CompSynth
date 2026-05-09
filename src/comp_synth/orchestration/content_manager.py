@@ -15,7 +15,6 @@ from comp_synth.crawlers.rss import RSSCrawler
 from comp_synth.schema.content_item import ContentItem, RSSItem, WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.source_outcome_store import SourceOutcomeStore
-from comp_synth.store.vector_store import VectorStore
 from comp_synth.utils.json_extraction import coerce_text_content, extract_json
 
 # ============================================================================
@@ -193,7 +192,6 @@ class ContentManager:
         self,
         crawl_tracker: CrawlTracker | None = None,
         strategy_factory: SourceStrategyFactory | None = None,
-        vector_store: VectorStore | None = None,
         source_outcome_store: SourceOutcomeStore | None = None,
         tag_vocabulary: list[str] | None = None,
     ):
@@ -206,14 +204,11 @@ class ContentManager:
             strategy_factory: Optional strategy factory. If not provided,
                             a default factory with RSS, Web, JavaScript strategies
                             will be created.
-            vector_store: Optional VectorStore instance. If not provided,
-                         a new one will be created.
             source_outcome_store: Optional SourceOutcomeStore instance.
             tag_vocabulary: Optional list of allowed tags. If not provided,
                            defaults from prompt.py will be used.
         """
         self._tracker = crawl_tracker or CrawlTracker()
-        self._vector_store = vector_store or VectorStore()
         self._source_outcome_store = source_outcome_store or SourceOutcomeStore()
         self._crawlers: dict[str, BaseCrawler] = {}
         self._strategy_factory = strategy_factory or SourceStrategyFactory.create_default_factory()
@@ -592,52 +587,3 @@ class ContentManager:
     def is_already_crawled(self, source: str, url: str) -> bool:
         """Check if a URL has already been crawled (exposed for testing)."""
         return self._tracker.is_crawled(source, url)
-
-    def enrich(
-        self,
-        topic_groups: list[dict],
-        new_items: list[ContentItem],
-    ) -> list[dict]:
-        """
-        检索历史相关内容,并将新内容存入向量库.
-
-        Args:
-            topic_groups: 主题分组列表,每个分组包含 topic, summary, articles
-            new_items: 本次新采集的内容列表
-
-        Returns:
-            更新后的 topic_groups (每个分组包含 related_historical)
-        """
-        # 当前文章 URL 集合,用于排除
-        current_urls = {item.url for item in new_items}
-
-        for group in topic_groups:
-            query = f"{group['topic']}: {group['summary']}"
-            results = self._vector_store.search(query, k=5)
-            related = []
-
-            # 获取历史文章的元数据 (从 SQLite)
-            result_ids = [r["id"] for r in results]
-            historical_metadata = {
-                item["article_id"]: item
-                for item in self._tracker.get_articles_by_ids(result_ids)
-            }
-
-            for r in results:
-                article_id = r["id"]
-                url = article_id.split(":", 1)[1] if ":" in article_id else article_id
-                if url not in current_urls:
-                    meta = historical_metadata.get(article_id, {})
-                    related.append({
-                        "title": meta.get("title", ""),
-                        "summary": r["document"][:200] if r["document"] else "",
-                        "url": url,
-                    })
-            group["related_historical"] = related
-
-        # 存入新内容: 先保存元数据到 SQLite,再存入向量库
-        if new_items:
-            self._vector_store.add(new_items)
-            logger.info(f"已将 {len(new_items)} 条新内容存入向量库和 SQLite")
-
-        return topic_groups

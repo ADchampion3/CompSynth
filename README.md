@@ -4,7 +4,7 @@
 
 本地内容聚合与发布系统。抓取 RSS、Web（静态/JS渲染）内容，通过 LLM 生成摘要，输出 Markdown 日报。
 
-[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/) [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react)](https://react.dev/) [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat&logo=typescript)](https://www.typescriptlang.org/) [![ChromaDB](https://img.shields.io/badge/ChromaDB-1.8-green?style=flat)](https://www.trychroma.com/)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/) [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react)](https://react.dev/) [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat&logo=typescript)](https://www.typescriptlang.org/)
 [![GitHub stars](https://img.shields.io/github/stars/ADchampion3/CompSynth?style=flat)](https://github.com/ADchampion3/CompSynth/stargazers)
 
 [Website](https://github.com/ADchampion3/CompSynth)  · [Contributing](CONTRIBUTING.md)
@@ -26,10 +26,12 @@
 
 <video src="docs/assets/display.mp4" width="800" controls></video>
 
+**注意**: 这不是一个知识库, 只是一个方便用户检查信息是否更新以及对更新信息有一个大致的了解和便于追踪到信息原文的工具
+
 ## 功能
 
 - **多源抓取** — RSS、Web（静态）、JavaScript 渲染页面
-- **智能去重** — SQLite + ChromaDB 实现持久化去重
+- **智能去重** — SQLite实现持久化去重
 - **LLM 摘要** — 支持 OpenAI 和 Anthropic兼容 API
 - **Web UI** — 收件箱、订阅源管理、文章阅读
 - **选择器编辑器** — CSS 选择器 + LLM 辅助重提取
@@ -94,19 +96,14 @@ npm run dev
 └──────────────┘            │                       │
                            ▼                       ▼
                     ┌──────────────┐     ┌──────────────────┐
-                    │  ChromaDB    │     │   LLM            │
-                    │  (vector)    │     │   (summarize)    │
-                    └──────────────┘     └────────┬─────────┘
-                                                  │
-                    ┌──────────────┐              │
-                    │  FastAPI     │<─────────────┘
-                    │  (Web UI)    │
-                    └──────────────┘
+                    │  FastAPI     │     │   LLM            │
+                    │  (Web UI)    │     │   (summarize)    │
+                    └──────────────┘     └──────────────────┘
 ```
 
 | 层级 | 技术栈 |
 |------|--------|
-| 后端 | Python 3.11+, FastAPI, SQLite, ChromaDB |
+| 后端 | Python 3.11+, FastAPI, SQLite |
 | 前端 | React, TypeScript, Vite |
 | LLM | OpenAI 兼容 API / Anthropic |
 
@@ -185,9 +182,8 @@ cp .env.example .env
 
 ## Roadmap
 
-- [ ] **底层使用 RAG 做向量搜索** — 借助 RAG（检索增强生成）提升相关文章推荐的准确性
 - [ ] **预处理提高 Selectors 有效性** — 爬取前预处理 URL/页面结构，减少无效 Selector
-- [ ] **定时任务** — 支持配置 Cron 表达式，自动定期抓取和生成日报
+- [ ] **定时任务** — 支持配置自动定期抓取和生成日报
 - [ ] **推送功能** — 日报生成后自动推送到微信、邮件、Telegram 等平台
 - [ ] **增强信息源与反爬通用性** — 支持更多网站类型，自动处理常见反爬机制（UA、代理池、验证码等）
 - [ ] **封装为SKILL** — 增强CLI通用性, 封装为SKILL供Agent使用

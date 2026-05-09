@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CompSynth is a content aggregation and publishing system (内容聚合与发布系统). It fetches content from RSS feeds, web pages, and Arxiv, deduplicates and persists via ChromaDB + SQLite, generates summaries via LLM, and publishes aggregated reports.
+CompSynth is a content aggregation and publishing system (内容聚合与发布系统). It fetches content from RSS feeds, web pages, and Arxiv, deduplicates and persists via SQLite, generates summaries via LLM, and publishes aggregated reports.
 
 ## Commands
 
@@ -45,9 +45,9 @@ crawlers/ — fetches and extracts structured ContentItem
     ↓
 schema/ — Pydantic models (ContentItem, RSSItem, WebPageItem)
     ↓
-store/ — VectorStore (ChromaDB) + CrawlTracker (SQLite) + SchemaStore (SQLite) for dedup & persistence
+store/ — CrawlTracker (SQLite) + SchemaStore (SQLite) for dedup & persistence
     ↓
-orchestration/ — Plain async pipeline: fetch → dedup → summarize → enrich → publish
+orchestration/ — Plain async pipeline: fetch → dedup → summarize → publish
     ↓
 llm_provider/ — LLMRegistry supporting OpenAI-compatible and Anthropic providers
     ↓
@@ -62,13 +62,12 @@ publishers/ — publishes aggregated reports to target platforms
 | `schema/source.py` | `SourceConfig` model for subscription source definitions |
 | `crawlers/` | RSSCrawler, AdaptiveWebCrawler, DynamicWebCrawler implementations |
 | `crawlers/extractors.py` | `DOMExtractor` for CSS-selector and LLM-based content extraction |
-| `store/vector_store.py` | ChromaDB-backed vector storage with TTL cleanup |
 | `store/crawl_tracker.py` | SQLite-backed crawl tracking and deduplication |
 | `store/schema_store.py` | SQLite-backed site schema storage for CSS selectors |
 | `store/migrations.py` | Lightweight SQLite schema bootstrap and migration tracking |
 | `store/repositories/` | Data access layer: article, source, crawl outcome, report repositories |
 | `orchestration/pipeline.py` | Plain async pipeline runner and routing |
-| `orchestration/nodes.py` | Pipeline nodes: fetch, dedup, summarize, enrich, publish |
+| `orchestration/nodes.py` | Pipeline nodes: fetch, dedup, summarize, publish |
 | `orchestration/content_manager.py` | Source dispatch, concurrency control, detail fetch orchestration |
 | `services/` | Business logic: source, article, crawl, dashboard, report services |
 | `api/` | FastAPI application with routers for articles, sources, crawls, tags, reports, dashboard |
@@ -79,7 +78,7 @@ publishers/ — publishes aggregated reports to target platforms
 
 ### Config
 
-Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.py`). Key vars: `COMPSYNTH_DATA_DIR`, `COMPSYNTH_CHROMA_PERSIST_DIR`, `COMPSYNTH_CRAWL_DB_PATH`, `COMPSYNTH_SITE_SCHEMA_DB_PATH`, `COMPSYNTH_SUBSCRIPTIONS_PATH`, LLM API keys.
+Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.py`). Key vars: `COMPSYNTH_DATA_DIR`, `COMPSYNTH_CRAWL_DB_PATH`, `COMPSYNTH_SITE_SCHEMA_DB_PATH`, `COMPSYNTH_SUBSCRIPTIONS_PATH`, LLM API keys.
 
 **YAML/DB sync**: On startup, `subscriptions.yaml` is synced to `crawl_state.db` (YAML is source of truth). The API server and CLI pipeline both read from the DB at runtime.
 
@@ -101,8 +100,7 @@ Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.p
 3. For each source, select appropriate crawler and fetch → list[ContentItem]
 4. Deduplicate via CrawlTracker, merge today's historical content
 5. Summarize: LLM groups articles by topic (3-retry with JSON extraction)
-6. Enrich: Search VectorStore for related content, save new items
-7. Publish: LLM generates Markdown report to output/digest_YYYYMMDD.md
+6. Publish: LLM generates Markdown report to output/digest_YYYYMMDD.md
 ```
 
 ## Behavioral Guidelines

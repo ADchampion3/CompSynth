@@ -169,14 +169,6 @@ def update_article_note(
     )
 
 
-@router.get("/articles/related")
-def get_related_articles(
-    article_id: str = Query(..., description="Article ID"),
-):
-    """Placeholder — VectorStore integration deferred to a later milestone."""
-    return {"items": [], "total": 0, "implemented": False}
-
-
 @router.patch("/articles/tags", response_model=ArticleResponse)
 def update_article_tags(
     body: TagsUpdateRequest,
