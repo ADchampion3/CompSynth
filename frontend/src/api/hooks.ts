@@ -192,18 +192,6 @@ export function useUpdateArticleNote() {
   });
 }
 
-export function useRelatedArticles(articleId: string | undefined) {
-  return useQuery({
-    queryKey: ["articles", "related", articleId],
-    queryFn: () =>
-      apiGet<{ items: ArticleResponse[]; total: number; implemented: boolean }>(
-        "/articles/related",
-        { article_id: articleId },
-      ),
-    enabled: !!articleId,
-  });
-}
-
 // Inbox sources (distinct sources that have articles, not from subscription table)
 export function useInboxSources() {
   return useQuery({

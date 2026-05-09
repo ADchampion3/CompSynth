@@ -9,8 +9,8 @@ subscriptions.yaml
   -> orchestration.nodes.fetch_sources
   -> orchestration.content_manager.ContentManager
   -> crawlers
-  -> store.CrawlTracker + store.VectorStore
-  -> orchestration.nodes.summarize/enrich/publish
+  -> store.CrawlTracker
+  -> orchestration.nodes.summarize/publish
   -> output/digest_YYYYMMDD.md
 ```
 
@@ -26,7 +26,7 @@ subscriptions.yaml
 | Services | `src/comp_synth/services/` | Business logic: source management, article operations, crawl runs, dashboard, reports. |
 | API | `src/comp_synth/api/` | FastAPI application with REST routers for articles, sources, crawls, tags, reports, dashboard. |
 | LLM providers | `src/comp_synth/llm_provider/` | LangChain provider registry for OpenAI-compatible and Anthropic models. |
-| Store | `src/comp_synth/store/` | SQLite article tracking, Chroma vector storage, site schema cache, migrations. |
+| Store | `src/comp_synth/store/` | SQLite article tracking, site schema cache, migrations. |
 | Store repos | `src/comp_synth/store/repositories/` | Data access layer: article, source, crawl outcome, report, site schema repositories. |
 | Publishers | `src/comp_synth/publishers/` | Publisher interfaces for future output targets. |
 | Utilities | `src/comp_synth/utils/` | Shared utilities: logging (Loguru), JSON extraction from LLM output. |
@@ -37,7 +37,7 @@ subscriptions.yaml
 fetch_sources
   -> deduplicate
   -> route_after_deduplicate
-       -> summarize -> enrich -> publish
+       -> summarize -> publish
        -> use_last_digest
        -> end
 ```
@@ -70,8 +70,6 @@ The `SourceCrawlOutcomeRepository` computes per-source health status (healthy/st
 `SourceOutcomeStore` stores per-source crawl outcomes in SQLite. The outcome table records source key, type, site, URL, new item count, error, and crawl time so zero-result days can be distinguished from fetch errors.
 
 `SchemaStore` stores cached CSS selectors and LLM call timestamps. It also tracks stale selector refresh attempts separately from normal selector learning, preserving the regular 24-hour LLM rate limit while allowing guarded recovery from stale cached selectors.
-
-`VectorStore.add()` is idempotent: it uses Chroma `upsert()` when available, otherwise it deletes existing ids before adding documents.
 
 ## LLM Configuration
 

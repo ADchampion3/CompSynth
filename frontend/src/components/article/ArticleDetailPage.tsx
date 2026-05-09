@@ -6,7 +6,6 @@ import LoadingSkeleton from "../ui/LoadingSkeleton";
 import ArticleContent from "./ArticleContent";
 import ArticleHeader from "./ArticleHeader";
 import NotePanel from "./NotePanel";
-import RelatedArticles from "./RelatedArticles";
 
 export default function ArticleDetailPage() {
   const { articleId: rawId } = useParams();
@@ -84,7 +83,6 @@ export default function ArticleDetailPage() {
 
       <hr className="border-rule my-8" />
 
-      <RelatedArticles articleId={article.article_id} />
       <NotePanel articleId={article.article_id} state={state} />
     </article>
   );

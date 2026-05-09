@@ -4,7 +4,6 @@ from typing import Callable
 from comp_synth.config import settings
 from comp_synth.orchestration.nodes import (
     deduplicate,
-    enrich,
     fetch_sources,
     publish,
     summarize,
@@ -58,6 +57,5 @@ async def run_pipeline(initial_state: PipelineState | None = None) -> PipelineSt
         return state
 
     state.update(await summarize(state))
-    state.update(await enrich(state))
     state.update(await publish(state))
     return state

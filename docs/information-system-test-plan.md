@@ -81,7 +81,7 @@ Add one Playwright path with mocked API or the test API:
 3. Run startup migrations a second time and confirm idempotency.
 4. Confirm existing articles are readable.
 5. Confirm article state backfills without changing article content.
-6. Confirm Chroma/vector missing ids do not break article detail.
+6. Confirm article detail works correctly when no related articles are available.
 7. Confirm CLI digest generation still works through the service path.
 
 ## Manual QA Checklist

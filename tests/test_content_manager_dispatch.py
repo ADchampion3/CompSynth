@@ -35,7 +35,7 @@ def test_javascript_source_uses_dynamic_fetch(monkeypatch):
         def save_articles(self, items):
             pass
 
-    manager = ContentManager(crawl_tracker=FakeTracker(), vector_store=object())
+    manager = ContentManager(crawl_tracker=FakeTracker())
     monkeypatch.setattr(manager, "_summarize_content", lambda title, content: ("", []))
     monkeypatch.setattr(manager, "_get_crawler", lambda source_type: FakeDynamicCrawler())
     async def fake_process_item(item, crawler, source_type, extra_metadata, semaphore, done_count, total):

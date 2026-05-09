@@ -170,7 +170,6 @@ def test_content_manager_records_source_outcomes(monkeypatch):
 
     manager = ContentManager(
         crawl_tracker=object(),
-        vector_store=object(),
         source_outcome_store=FakeOutcomeStore(),
     )
 
