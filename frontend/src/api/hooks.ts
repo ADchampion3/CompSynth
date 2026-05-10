@@ -219,6 +219,13 @@ export function useImportYaml() {
   });
 }
 
+export function useExportYaml() {
+  return useMutation({
+    mutationFn: () =>
+      apiPost<{ exported: string }>("/sources/export-yaml"),
+  });
+}
+
 export function useCreateSource() {
   const qc = useQueryClient();
   return useMutation({

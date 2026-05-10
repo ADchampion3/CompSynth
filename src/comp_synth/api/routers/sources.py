@@ -197,3 +197,19 @@ def import_yaml(service: SourceService = Depends(get_source_service)):
             ).model_dump(),
         )
     return {"imported": len(imported)}
+
+
+@router.post("/sources/export-yaml")
+def export_yaml(service: SourceService = Depends(get_source_service)):
+    try:
+        path = service.export_yaml()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorDetail(
+                problem="YAML export failed",
+                cause=str(exc),
+                fix="Check that the database is accessible.",
+            ).model_dump(),
+        )
+    return {"exported": str(path)}

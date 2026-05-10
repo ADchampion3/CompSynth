@@ -3,6 +3,7 @@ import type { SourceResponse } from "../../api/types";
 import {
   useSources,
   useImportYaml,
+  useExportYaml,
   useCreateSource,
   useUpdateSource,
 } from "../../api/hooks";
@@ -29,6 +30,7 @@ const emptyForm: SourceFormData = {
 export default function SourcesPage() {
   const { data, isLoading, error } = useSources();
   const importYaml = useImportYaml();
+  const exportYaml = useExportYaml();
   const createSource = useCreateSource();
   const updateSource = useUpdateSource();
   useDocumentTitle("Sources");
@@ -104,9 +106,18 @@ export default function SourcesPage() {
           <button
             onClick={() => importYaml.mutate()}
             disabled={importYaml.isPending}
+            title="从配置的 subscriptions.yaml 文件导入订阅源到数据库"
             className="shrink-0 rounded-md border border-rule px-4 py-2 text-sm font-medium text-ink-3 hover:bg-paper-2 disabled:opacity-50 transition-colors min-h-[44px]"
           >
             {importYaml.isPending ? "Importing…" : "Import YAML"}
+          </button>
+          <button
+            onClick={() => exportYaml.mutate()}
+            disabled={exportYaml.isPending}
+            title="将数据库中的订阅源导出到配置的 subscriptions.yaml 文件"
+            className="shrink-0 rounded-md border border-rule px-4 py-2 text-sm font-medium text-ink-3 hover:bg-paper-2 disabled:opacity-50 transition-colors min-h-[44px]"
+          >
+            {exportYaml.isPending ? "Exporting…" : "Export YAML"}
           </button>
         </div>
       </div>
@@ -120,6 +131,16 @@ export default function SourcesPage() {
       {importYaml.isError && (
         <div className="mb-4 rounded-md bg-err-muted p-3 text-sm text-err">
           Import failed. Check that subscriptions.yaml exists.
+        </div>
+      )}
+      {exportYaml.isSuccess && (
+        <div className="mb-4 rounded-md bg-ok-muted p-3 text-sm text-ok font-medium">
+          Exported to {exportYaml.data.exported}.
+        </div>
+      )}
+      {exportYaml.isError && (
+        <div className="mb-4 rounded-md bg-err-muted p-3 text-sm text-err">
+          Export failed. Check that the database is accessible.
         </div>
       )}
 
