@@ -124,22 +124,22 @@ export default function SourcesPage() {
 
       {/* Messages */}
       {importYaml.isSuccess && (
-        <div className="mb-4 rounded-md bg-ok-muted p-3 text-sm text-ok font-medium">
+        <div className="mb-4 rounded-md bg-ok-muted p-3 text-sm text-ok font-medium" aria-live="polite">
           Imported {importYaml.data.imported} source(s).
         </div>
       )}
       {importYaml.isError && (
-        <div className="mb-4 rounded-md bg-err-muted p-3 text-sm text-err">
+        <div className="mb-4 rounded-md bg-err-muted p-3 text-sm text-err" aria-live="polite">
           Import failed. Check that subscriptions.yaml exists.
         </div>
       )}
       {exportYaml.isSuccess && (
-        <div className="mb-4 rounded-md bg-ok-muted p-3 text-sm text-ok font-medium">
+        <div className="mb-4 rounded-md bg-ok-muted p-3 text-sm text-ok font-medium" aria-live="polite">
           Exported to {exportYaml.data.exported}.
         </div>
       )}
       {exportYaml.isError && (
-        <div className="mb-4 rounded-md bg-err-muted p-3 text-sm text-err">
+        <div className="mb-4 rounded-md bg-err-muted p-3 text-sm text-err" aria-live="polite">
           Export failed. Check that the database is accessible.
         </div>
       )}

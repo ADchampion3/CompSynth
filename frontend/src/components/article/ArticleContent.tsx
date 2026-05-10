@@ -76,6 +76,18 @@ export default function ArticleContent({ url, content }: ArticleContentProps) {
 
   const domain = canEmbed ? new URL(validatedUrl).hostname : "";
 
+  const handleTabKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      toggleMode(mode === "original" ? "text" : "original");
+      (e.currentTarget.nextElementSibling ?? e.currentTarget.previousElementSibling)?.focus();
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      toggleMode(mode === "text" ? "original" : "text");
+      (e.currentTarget.previousElementSibling ?? e.currentTarget.nextElementSibling)?.focus();
+    }
+  };
+
   return (
     <section className="mt-8">
       {/* Toggle bar */}
@@ -87,7 +99,10 @@ export default function ArticleContent({ url, content }: ArticleContentProps) {
           <button
             role="tab"
             aria-selected={mode === "original"}
+            aria-controls="tabpanel-content"
+            tabIndex={mode === "original" ? 0 : -1}
             onClick={() => toggleMode("original")}
+            onKeyDown={handleTabKeyDown}
             className={`px-3 py-1 text-[0.6875rem] font-semibold uppercase tracking-wider transition-colors ${
               mode === "original"
                 ? "bg-ink text-paper"
@@ -99,7 +114,10 @@ export default function ArticleContent({ url, content }: ArticleContentProps) {
           <button
             role="tab"
             aria-selected={mode === "text"}
+            aria-controls="tabpanel-content"
+            tabIndex={mode === "text" ? 0 : -1}
             onClick={() => toggleMode("text")}
+            onKeyDown={handleTabKeyDown}
             className={`px-3 py-1 text-[0.6875rem] font-semibold uppercase tracking-wider transition-colors ${
               mode === "text"
                 ? "bg-ink text-paper"
@@ -123,7 +141,7 @@ export default function ArticleContent({ url, content }: ArticleContentProps) {
       </div>
 
       {/* Content area */}
-      <div role="tabpanel" className="min-h-[400px]">
+      <div role="tabpanel" id="tabpanel-content" className="min-h-[400px]">
         {mode === "original" && canEmbed ? (
           <>
             {iframeState === "loading" && (

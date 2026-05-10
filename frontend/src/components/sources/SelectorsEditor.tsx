@@ -238,7 +238,7 @@ export default function SelectorsEditor({ source }: { source: SourceResponse }) 
       <SelectorSection
         label="User Defined"
         tag="User"
-        tagColor="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
+        tagColor="bg-accent-muted text-accent-text"
         selectors={source.selectors}
         isEditing={userEditing}
         onEdit={() => setUserEditing(true)}
@@ -253,7 +253,7 @@ export default function SelectorsEditor({ source }: { source: SourceResponse }) 
       <SelectorSection
         label="LLM Auto-detected"
         tag="LLM"
-        tagColor="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
+        tagColor="bg-ok-muted text-ok"
         selectors={source.llm_selectors}
         isEditing={llmEditing}
         onEdit={() => setLlmEditing(true)}

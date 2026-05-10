@@ -27,7 +27,7 @@
   --color-ok: oklch(0.50 0.10 155);
   --color-ok-muted: oklch(0.94 0.02 155);
   --color-warn: oklch(0.68 0.14 80);
-  --color-warn-muted: oklch(0.95 0.03 80);
+  --color-warn-muted: oklch(0.96 0.03 80);
   --color-err: oklch(0.50 0.14 25);
   --color-err-muted: oklch(0.94 0.03 25);
 
@@ -53,16 +53,16 @@
 
   --color-accent: oklch(0.62 0.11 30);
   --color-accent-hover: oklch(0.56 0.13 30);
-  --color-accent-muted: oklch(0.20 0.03 30);
+  --color-accent-muted: oklch(0.26 0.03 30);
   --color-accent-text: oklch(0.68 0.09 30);
   --color-accent-selection: oklch(0.40 0.10 30 / 0.45);
 
   --color-ok: oklch(0.62 0.12 155);
-  --color-ok-muted: oklch(0.20 0.03 155);
+  --color-ok-muted: oklch(0.26 0.03 155);
   --color-warn: oklch(0.76 0.13 80);
-  --color-warn-muted: oklch(0.22 0.03 80);
-  --color-err: oklch(0.62 0.15 25);
-  --color-err-muted: oklch(0.22 0.04 25);
+  --color-warn-muted: oklch(0.32 0.04 80);
+  --color-err: oklch(0.65 0.15 25);
+  --color-err-muted: oklch(0.28 0.04 25);
 }
 
 body {
@@ -124,4 +124,9 @@ body {
   font-family: var(--font-display);
   font-size: 1rem;
   line-height: 1.75;
+}
+
+/* Skeleton loading bar width via CSS custom property */
+[style*="--skeleton-w"] {
+  width: var(--skeleton-w);
 }

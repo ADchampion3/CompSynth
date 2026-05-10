@@ -9,7 +9,8 @@ export default function LoadingSkeleton({
         <div
           key={i}
           className="h-3 bg-paper-3 rounded-sm"
-          style={{ width: `${Math.max(40, 100 - i * 15)}%` }}
+          style={{ "--skeleton-w": `${Math.max(40, 100 - i * 15)}%` } as React.CSSProperties}
+          aria-hidden="true"
         />
       ))}
     </div>

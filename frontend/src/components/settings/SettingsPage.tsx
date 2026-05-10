@@ -164,7 +164,7 @@ export default function SettingsPage() {
 
 function RestartBanner({ onDismiss }: { onDismiss: () => void }) {
   return (
-    <div className="flex items-center gap-3 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+    <div className="flex items-center gap-3 rounded-md bg-warn-muted border border-rule px-4 py-3 text-sm text-warn">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
         <line x1="12" y1="9" x2="12" y2="13" />
@@ -173,7 +173,7 @@ function RestartBanner({ onDismiss }: { onDismiss: () => void }) {
       <span className="flex-1">Some changes require a server restart to take effect.</span>
       <button
         onClick={onDismiss}
-        className="text-amber-600 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-100 font-medium text-xs uppercase tracking-wide"
+        className="text-warn hover:text-ink font-medium text-xs uppercase tracking-wide transition-colors"
       >
         Dismiss
       </button>
@@ -331,13 +331,14 @@ function SettingsGroupCard({
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-end items-center gap-2">
+        {saved && <span className="text-xs text-ok" aria-live="polite">Saved</span>}
         <button
           onClick={onSave}
           disabled={!hasEdits || saving}
           className={`px-4 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide transition-colors ${
             saved
-              ? "bg-green-600 text-white"
+              ? "bg-ok text-paper"
               : hasEdits
                 ? "bg-accent text-white hover:bg-accent/90"
                 : "bg-paper-3 text-ink-3 cursor-not-allowed"
@@ -374,8 +375,8 @@ function SettingsField({
           {field.label}
         </span>
         {isConfigured && (
-          <span className="flex items-center gap-1 text-[0.625rem] font-medium text-green-600 dark:text-green-400">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" />
+          <span className="flex items-center gap-1 text-[0.625rem] font-medium text-ok">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-ok" />
             configured
           </span>
         )}
