@@ -37,6 +37,13 @@ async def lifespan(app: FastAPI):
             overrides = repo.load()
             if overrides:
                 apply_db_overrides(overrides)
+
+        # Rebuild LLM registry with overridden settings
+        import comp_synth.llm_provider.registry as _reg
+        from comp_synth.config import settings as _s
+        from comp_synth.llm_provider.registry import LLMRegistry
+
+        _reg.llm_registry = LLMRegistry(_s.model_dump())
     except Exception as exc:
         from loguru import logger
 

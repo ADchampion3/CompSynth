@@ -57,11 +57,12 @@ def _sync_to_env(
     return path
 
 SETTINGS_SCHEMA = {
-    "openai_api_key": {"type": "string", "group": "llm", "label": "OpenAI API Key", "sensitive": True, "description": "API key for OpenAI-compatible LLM provider", "default": ""},
-    "openai_base_url": {"type": "string", "group": "llm", "label": "OpenAI Base URL", "sensitive": False, "description": "Base URL for OpenAI-compatible API", "default": "https://api.openai.com/v1"},
-    "anthropic_api_key": {"type": "string", "group": "llm", "label": "Anthropic API Key", "sensitive": True, "description": "API key for Anthropic Claude", "default": ""},
-    "anthropic_base_url": {"type": "string", "group": "llm", "label": "Anthropic Base URL", "sensitive": False, "description": "Base URL for Anthropic API", "default": ""},
-    "model": {"type": "string", "group": "llm", "label": "Model", "sensitive": False, "description": "LLM model identifier", "default": "gpt-4o-mini"},
+    "llm_provider": {"type": "select", "group": "llm", "label": "Provider", "sensitive": False, "description": "LLM provider type", "default": "openai", "options": ["openai", "anthropic"]},
+    "openai_api_key": {"type": "string", "group": "llm", "label": "API Key", "sensitive": True, "description": "OpenAI 兼容接口的 API Key", "default": "", "provider": "openai"},
+    "openai_base_url": {"type": "string", "group": "llm", "label": "Base URL", "sensitive": False, "description": "OpenAI 兼容接口地址", "default": "https://api.openai.com/v1", "provider": "openai"},
+    "anthropic_api_key": {"type": "string", "group": "llm", "label": "API Key", "sensitive": True, "description": "Anthropic Claude API Key", "default": "", "provider": "anthropic"},
+    "anthropic_base_url": {"type": "string", "group": "llm", "label": "Base URL", "sensitive": False, "description": "Anthropic API 接口地址（可选）", "default": "", "provider": "anthropic"},
+    "model": {"type": "string", "group": "llm", "label": "Model", "sensitive": False, "description": "LLM model identifier", "default": "gpt-4o-mini", "provider_defaults": {"openai": "gpt-4o-mini", "anthropic": "claude-sonnet-4-20250514"}},
     "request_timeout": {"type": "integer", "group": "crawler", "label": "Request Timeout", "sensitive": False, "description": "HTTP request timeout in seconds", "default": 30, "constraints": {"minimum": 5, "maximum": 300}},
     "max_concurrent_requests": {"type": "integer", "group": "crawler", "label": "Max Concurrent Requests", "sensitive": False, "description": "Maximum parallel HTTP requests", "default": 5, "constraints": {"minimum": 1, "maximum": 50}},
     "list_page_time_threshold_days": {"type": "integer", "group": "crawler", "label": "List Page Time Threshold", "sensitive": False, "description": "Skip articles older than this many days", "default": 7, "constraints": {"minimum": 1, "maximum": 90}},
@@ -127,6 +128,7 @@ class SettingsService:
 
         self._repo.save(current)
         _sync_to_env(current)
+        self._apply_runtime(current)
         return self.get_effective_settings()
 
     def reset_group(self, group: str) -> dict:
@@ -140,18 +142,39 @@ class SettingsService:
         else:
             self._repo.delete()
         _sync_to_env(current, remove_keys=set(keys_in_group))
+        effective = current if current else None
+        self._apply_runtime(effective)
         return self.get_effective_settings()
 
     def _defaults_from_model(self) -> dict[str, str]:
-        s = Settings()
-        return {k: str(getattr(s, k)) for k in SETTINGS_SCHEMA}
+        defaults: dict[str, str] = {}
+        for k, v in SETTINGS_SCHEMA.items():
+            defaults[k] = str(v.get("default", ""))
+        return defaults
 
     def _validate_against_model(self, data: dict[str, str]) -> None:
         """Validate the full override set by constructing a Settings model."""
         defaults = self._defaults_from_model()
         merged = {**defaults, **data}
+        settings_fields = Settings.model_fields.keys()
+        validation_data = {k: v for k, v in merged.items() if k in settings_fields}
         try:
-            Settings(**merged)
+            Settings(**validation_data)
         except Exception as exc:
             from fastapi import HTTPException
             raise HTTPException(status_code=422, detail={"validation": str(exc)})
+
+    @staticmethod
+    def _apply_runtime(overrides: dict[str, str] | None) -> None:
+        """Update in-memory settings and rebuild LLM registry."""
+        from comp_synth.config import apply_db_overrides
+
+        defaults = {k: str(v.get("default", "")) for k, v in SETTINGS_SCHEMA.items()}
+        merged = {**defaults, **(overrides or {})}
+        apply_db_overrides(merged)
+
+        import comp_synth.llm_provider.registry as _mod
+        from comp_synth.config import settings as _s
+        from comp_synth.llm_provider.registry import LLMRegistry
+
+        _mod.llm_registry = LLMRegistry(_s.model_dump())

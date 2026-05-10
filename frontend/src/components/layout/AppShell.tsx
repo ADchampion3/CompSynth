@@ -1,6 +1,7 @@
-import { Outlet, NavLink } from "react-router-dom";
+import { Outlet, NavLink, Link } from "react-router-dom";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "../../lib/theme";
+import { useLLMStatus } from "../../api/hooks";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard" },
@@ -41,8 +42,11 @@ function ThemeToggle() {
 
 export default function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [dismissedLLM, setDismissedLLM] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const { data: llmStatus } = useLLMStatus();
+  const showLLMWarning = !dismissedLLM && llmStatus && !llmStatus.available;
 
   const closeDrawer = useCallback(() => setMobileOpen(false), []);
 
@@ -205,6 +209,30 @@ export default function AppShell() {
           </nav>
         </aside>
       </div>
+
+      {/* LLM warning */}
+      {showLLMWarning && (
+        <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-5 py-2.5 text-sm text-amber-800 dark:text-amber-200 md:px-8">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <span className="flex-1">
+            LLM 不可用，摘要和报告功能受限。请在{" "}
+            <Link to="/settings" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-100">
+              Settings
+            </Link>{" "}
+            中配置 API Key。
+          </span>
+          <button
+            onClick={() => setDismissedLLM(true)}
+            className="text-amber-600 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-100 font-medium text-xs uppercase tracking-wide"
+          >
+            关闭
+          </button>
+        </div>
+      )}
 
       {/* Main content */}
       <main id="main" className="flex-1 overflow-auto">

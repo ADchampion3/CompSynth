@@ -193,8 +193,17 @@ export interface SettingsSchemaField {
   description: string;
   default: string | number;
   constraints?: { minimum?: number; maximum?: number };
+  options?: string[];
+  provider?: string;
+  provider_defaults?: Record<string, string>;
 }
 
 export interface SettingsSchemaResponse {
   fields: Record<string, SettingsSchemaField>;
+}
+
+export interface LLMStatusResponse {
+  available: boolean;
+  model?: string;
+  error?: string;
 }

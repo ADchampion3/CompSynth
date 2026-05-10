@@ -137,15 +137,16 @@ export default function SettingsPage() {
       />
 
       {groups.map((group) => {
-        const fields = schema
+        const allFields = schema
           ? Object.entries(schema.fields).filter(([, f]) => f.group === group)
           : [];
-        const hasEdits = fields.some(([k]) => k in edited);
+        const hasEdits = allFields.some(([k]) => k in edited);
         return (
           <SettingsGroupCard
             key={group}
+            group={group}
             title={GROUP_LABELS[group] || group}
-            fields={fields}
+            fields={allFields}
             values={settings || {}}
             edited={edited}
             onChange={handleFieldChange}
@@ -227,6 +228,7 @@ function ConnectionSection({
 }
 
 function SettingsGroupCard({
+  group,
   title,
   fields,
   values,
@@ -238,6 +240,7 @@ function SettingsGroupCard({
   saved,
   error,
 }: {
+  group: string;
   title: string;
   fields: [string, SettingsSchemaField][];
   values: Record<string, string>;
@@ -249,14 +252,66 @@ function SettingsGroupCard({
   saved: boolean;
   error: unknown;
 }) {
+  const isLLM = group === "llm";
+  const providerKey = "llm_provider";
+  const selectedProvider = (edited[providerKey] ?? values[providerKey] ?? "openai") as string;
+
+  const providerDefaults = isLLM
+    ? (fields.find(([k]) => k === "model")?.[1].provider_defaults ?? {})
+    : {};
+
+  const visibleFields = isLLM
+    ? fields.filter(([k, f]) => {
+        if (k === providerKey) return false;
+        if (!f.provider) return true;
+        return f.provider === selectedProvider;
+      })
+    : fields;
+
+  const switchProvider = (newProvider: string) => {
+    const prevProvider = selectedProvider;
+    onChange(providerKey, newProvider);
+    const currentModel = edited["model"] ?? values["model"] ?? "";
+    if (providerDefaults[prevProvider] && currentModel === providerDefaults[prevProvider]) {
+      onChange("model", providerDefaults[newProvider]);
+    }
+  };
+
   return (
     <div className="rounded-md border border-rule bg-paper p-5 space-y-4">
       <h2 className="font-display text-lg font-bold text-ink">{title}</h2>
 
+      {isLLM && (
+        <div className="flex rounded-md border border-rule overflow-hidden">
+          <button
+            type="button"
+            onClick={() => switchProvider("openai")}
+            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+              selectedProvider === "openai"
+                ? "bg-accent text-white"
+                : "bg-paper-2 text-ink-3 hover:text-ink"
+            }`}
+          >
+            OpenAI Compatible
+          </button>
+          <button
+            type="button"
+            onClick={() => switchProvider("anthropic")}
+            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors border-l border-rule ${
+              selectedProvider === "anthropic"
+                ? "bg-accent text-white"
+                : "bg-paper-2 text-ink-3 hover:text-ink"
+            }`}
+          >
+            Anthropic
+          </button>
+        </div>
+      )}
+
       <div className="space-y-4">
-        {fields.map(([key, field]) => (
+        {visibleFields.map(([key, field]) => (
           <SettingsField
-            key={key}
+            key={selectedProvider + "-" + key}
             fieldKey={key}
             field={field}
             currentValue={values[key] ?? ""}
@@ -328,13 +383,27 @@ function SettingsField({
       {field.description && (
         <p className="text-xs text-ink-3 mb-1.5">{field.description}</p>
       )}
-      <input
-        type={isSensitive ? "password" : "text"}
-        value={displayValue}
-        onChange={(e) => onChange(fieldKey, e.target.value)}
-        placeholder={isConfigured ? "Enter new value to update" : String(field.default)}
-        className="w-full rounded-md border border-rule bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-4 focus:outline-none focus:ring-1 focus:ring-accent"
-      />
+      {field.type === "select" && field.options ? (
+        <select
+          value={displayValue || String(field.default)}
+          onChange={(e) => onChange(fieldKey, e.target.value)}
+          className="w-full rounded-md border border-rule bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+        >
+          {field.options.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt === "openai" ? "OpenAI Compatible" : opt === "anthropic" ? "Anthropic" : opt}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type={isSensitive ? "password" : "text"}
+          value={displayValue}
+          onChange={(e) => onChange(fieldKey, e.target.value)}
+          placeholder={isConfigured ? "Enter new value to update" : String(field.default)}
+          className="w-full rounded-md border border-rule bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-4 focus:outline-none focus:ring-1 focus:ring-accent"
+        />
+      )}
       {field.constraints && (
         <p className="text-[0.625rem] text-ink-4 mt-1">
           Range: {field.constraints.minimum} – {field.constraints.maximum}

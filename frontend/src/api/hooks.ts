@@ -20,6 +20,7 @@ import type {
   ReportSummaryResponse,
   SettingsResponse,
   SettingsSchemaResponse,
+  LLMStatusResponse,
   SourceCreateRequest,
   SourceResponse,
   SourceUpdateRequest,
@@ -433,5 +434,13 @@ export function useUpdateSettings() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings"] });
     },
+  });
+}
+
+export function useLLMStatus() {
+  return useQuery({
+    queryKey: ["llm-status"],
+    queryFn: () => apiGet<LLMStatusResponse>("/settings/llm-status"),
+    staleTime: 60_000,
   });
 }

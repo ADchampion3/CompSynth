@@ -24,3 +24,13 @@ def update_settings(
 @router.get("/settings/schema")
 def get_settings_schema(service: SettingsService = Depends(get_settings_service)):
     return service.get_schema()
+
+
+@router.get("/settings/llm-status")
+def llm_status():
+    from comp_synth.llm_provider.registry import llm_registry
+
+    providers = llm_registry.list_providers()
+    if providers:
+        return {"available": True, "model": providers[0]}
+    return {"available": False, "error": "LLM provider not configured. Set API key in Settings."}
