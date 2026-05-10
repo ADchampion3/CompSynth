@@ -433,6 +433,7 @@ export function useUpdateSettings() {
       apiPatchBody<SettingsResponse>("/settings", updates),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["llm-status"] });
     },
   });
 }

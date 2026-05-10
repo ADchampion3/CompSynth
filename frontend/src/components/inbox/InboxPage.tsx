@@ -8,7 +8,7 @@ import Pagination from "../ui/Pagination";
 import FilterRail from "./FilterRail";
 import ArticleList from "./ArticleList";
 import ArticlePreview from "./ArticlePreview";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import type { ArticleResponse } from "../../api/types";
 
 const PAGE_SIZE = 50;
@@ -17,6 +17,7 @@ export default function InboxPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedArticle, setSelectedArticle] =
     useState<ArticleResponse | null>(null);
+  const detailsRef = useRef<HTMLDetailsElement>(null);
   useDocumentTitle("Inbox");
 
   const rawOffset = Number(searchParams.get("offset") ?? 0);
@@ -89,7 +90,7 @@ export default function InboxPage() {
             Inbox
           </h1>
           {/* Mobile filter toggle */}
-          <details className="md:hidden">
+          <details className="md:hidden" ref={(el) => { if (el) { detailsRef.current = el; } }}>
             <summary className="text-xs font-medium uppercase tracking-wider text-accent-text cursor-pointer">
               Filters
             </summary>
@@ -103,6 +104,12 @@ export default function InboxPage() {
                 onFilterChange={setFilter}
                 onClear={clearFilters}
               />
+              <button
+                onClick={() => detailsRef.current?.removeAttribute("open")}
+                className="mt-3 w-full text-center text-xs font-semibold uppercase tracking-wider text-ink-4 hover:text-ink py-2 transition-colors"
+              >
+                Done
+              </button>
             </div>
           </details>
         </div>

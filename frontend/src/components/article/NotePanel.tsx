@@ -48,10 +48,10 @@ export default function NotePanel({
           {saveNote.isPending ? "Saving…" : "Save Note"}
         </button>
         {saveNote.isError && (
-          <span className="text-xs text-err">Save failed</span>
+          <span className="text-xs text-err" aria-live="polite">Save failed</span>
         )}
         {saveNote.isSuccess && note === lastSaved && (
-          <span className="text-xs text-ok">Saved</span>
+          <span className="text-xs text-ok" aria-live="polite">Saved</span>
         )}
       </div>
     </section>
