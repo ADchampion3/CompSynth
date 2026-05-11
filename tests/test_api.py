@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -635,19 +634,18 @@ class TestReextractSelectorsAPI:
         )
         fake_selectors = [{"item_container": "article.post", "url": "a", "title": "h2"}]
         with (
-            patch("comp_synth.api.routers.sources.httpx.AsyncClient") as mock_client_cls,
+            patch(
+                "comp_synth.api.routers.sources.CrawleeFetchService"
+            ) as mock_service_cls,
             patch(
                 "comp_synth.api.routers.sources.DOMExtractor",
             ) as mock_extractor_cls,
         ):
-            mock_resp = AsyncMock()
-            mock_resp.text = "<html><body><article class='post'><a>link</a><h2>title</h2></article></body></html>"
-            mock_resp.raise_for_status = lambda: None
-            mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_resp)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
+            mock_service = AsyncMock()
+            mock_service.fetch_html = AsyncMock(
+                return_value="<html><body><article class='post'><a>link</a><h2>title</h2></article></body></html>"
+            )
+            mock_service_cls.instance.return_value = mock_service
 
             mock_extractor = AsyncMock()
             mock_extractor.generate_list_item_selectors = AsyncMock(return_value=fake_selectors)
@@ -690,12 +688,10 @@ class TestReextractSelectorsAPI:
                 "name": "Dead",
             },
         )
-        with patch("comp_synth.api.routers.sources.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
+        with patch("comp_synth.api.routers.sources.CrawleeFetchService") as mock_service_cls:
+            mock_service = AsyncMock()
+            mock_service.fetch_html = AsyncMock(side_effect=RuntimeError("Connection refused"))
+            mock_service_cls.instance.return_value = mock_service
 
             resp = client.post("/api/sources/reextract-selectors", json={"source_key": "https://unreachable.test/"})
             assert resp.status_code == 502
@@ -716,19 +712,16 @@ class TestReextractSelectorsAPI:
             },
         )
         with (
-            patch("comp_synth.api.routers.sources.httpx.AsyncClient") as mock_client_cls,
+            patch(
+                "comp_synth.api.routers.sources.CrawleeFetchService"
+            ) as mock_service_cls,
             patch(
                 "comp_synth.api.routers.sources.DOMExtractor",
             ) as mock_extractor_cls,
         ):
-            mock_resp = AsyncMock()
-            mock_resp.text = "<html><body></body></html>"
-            mock_resp.raise_for_status = lambda: None
-            mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_resp)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
+            mock_service = AsyncMock()
+            mock_service.fetch_html = AsyncMock(return_value="<html><body></body></html>")
+            mock_service_cls.instance.return_value = mock_service
 
             mock_extractor = AsyncMock()
             mock_extractor.generate_list_item_selectors = AsyncMock(return_value=[])

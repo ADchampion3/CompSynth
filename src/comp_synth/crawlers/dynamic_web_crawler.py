@@ -31,9 +31,9 @@ class DynamicWebCrawler(BaseCrawler):
     支持 JavaScript 动态渲染的网页爬虫。
 
     策略：
-      1. 先用 httpx 获取 HTML
+      1. 先用 Crawlee (BeautifulSoupCrawler) 获取 HTML
       2. 检测是否为 SPA（HTML 过短或包含 SPA 标记）
-      3. 若检测到 SPA 或 javascript:true 配置，切换 DrissionPage Chrome 渲染
+      3. 若检测到 SPA 或 javascript:true 配置，切换 Crawlee (PlaywrightCrawler) 渲染
       4. 委托 AdaptiveWebCrawler 处理内容提取（列表页/详情页检测）
     """
 
@@ -52,20 +52,20 @@ class DynamicWebCrawler(BaseCrawler):
         从单个页面抓取内容（支持 JavaScript 渲染）。
 
         流程：
-        1. 获取 HTML（httpx 或 Chrome 渲染）
+        1. 获取 HTML（Crawlee 静态抓取或 Playwright 渲染）
         2. 检测页面类型：列表页 vs 详情页
         3. 委托 AdaptiveWebCrawler 提取
         """
-        # 先尝试 httpx
+        # 先尝试 Crawlee 静态抓取
         html = ""
         try:
             html = await self._fetch_html(url)
         except Exception as e:
-            logger.warning("[Dynamic] httpx 失败 {url}: {error}, 将尝试浏览器渲染", url=url, error=e)
+            logger.warning("[Dynamic] 静态抓取失败 {url}: {error}, 将尝试浏览器渲染", url=url, error=e)
 
         # 检测是否需要 JS 渲染
         if is_likely_spa(html):
-            logger.info("[Dynamic] 检测到 SPA 或空页面 {url}, 切换浏览器渲染", url=url)
+            logger.info("[Dynamic] 检测到 SPA 或空页面 {url}, 切换 Playwright 渲染", url=url)
             html = await self._fetch_html_with_browser(url)
 
         # 检测页面类型，委托给 AdaptiveWebCrawler
@@ -91,17 +91,17 @@ class DynamicWebCrawler(BaseCrawler):
         url = source_config["url"]
         force_js = source_config.get("javascript", False)
 
-        # 先尝试 httpx
+        # 先尝试 Crawlee 静态抓取
         html = ""
         try:
             html = await self._fetch_html(url)
         except Exception as e:
-            logger.warning("[Dynamic] httpx 失败 {url}: {error}, 将尝试浏览器渲染", url=url, error=e)
+            logger.warning("[Dynamic] 静态抓取失败 {url}: {error}, 将尝试浏览器渲染", url=url, error=e)
 
         # 强制 JS 渲染或检测到 SPA
         if force_js or is_likely_spa(html):
             reason = "force_js=true" if force_js else "SPA 检测"
-            logger.info("[Dynamic] {reason} {url}, 切换浏览器渲染", reason=reason, url=url)
+            logger.info("[Dynamic] {reason} {url}, 切换 Playwright 渲染", reason=reason, url=url)
             html = await self._fetch_html_with_browser(url)
 
         # 检测页面类型，委托给 AdaptiveWebCrawler

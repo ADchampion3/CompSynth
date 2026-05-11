@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # 爬虫
     request_timeout: int = 30
     max_concurrent_requests: int = 5
+    crawl_domain_delay: float = 1.0
     list_page_time_threshold_days: int = 7
     list_page_count_threshold: int = 20
     selector_zero_refresh_enabled: bool = True
