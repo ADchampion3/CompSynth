@@ -2,7 +2,6 @@
 
 from urllib.parse import urlparse
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from sqlalchemy.orm import Session
@@ -17,6 +16,7 @@ from comp_synth.api.schemas import (
     SourceResponse,
     SourceUpdateRequest,
 )
+from comp_synth.crawlers.crawlee_fetch import CrawleeFetchService
 from comp_synth.crawlers.extractors import DOMExtractor
 from comp_synth.schema.site_chema import SiteSchema
 from comp_synth.services.source_service import SourceService
@@ -111,11 +111,8 @@ async def reextract_selectors(
     site_name = _site_name_from_url(source.url)
 
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            resp = await client.get(source.url, headers={"User-Agent": "CompSynth/1.0"})
-            resp.raise_for_status()
-            html = resp.text
-    except httpx.HTTPError as exc:
+        html = await CrawleeFetchService.instance().fetch_html(source.url)
+    except Exception as exc:
         logger.warning("Failed to fetch {} for reextract: {}", source.url, exc)
         raise HTTPException(status_code=502, detail=f"Failed to fetch source page: {exc}") from exc
 
