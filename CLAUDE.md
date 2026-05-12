@@ -47,11 +47,11 @@ schema/ — Pydantic models (ContentItem, RSSItem, WebPageItem)
     ↓
 store/ — CrawlTracker (SQLite) + SchemaStore (SQLite) for dedup & persistence
     ↓
-orchestration/ — Plain async pipeline: fetch → dedup → summarize → publish
+orchestration/ — Plain async pipeline: fetch → dedup → summarize → publish → notify
     ↓
 llm_provider/ — LLMRegistry supporting OpenAI-compatible and Anthropic providers
     ↓
-publishers/ — publishes aggregated reports to target platforms
+publishers/ — publishes aggregated reports to target platforms and notification channels
 ```
 
 ### Key Modules
@@ -67,7 +67,7 @@ publishers/ — publishes aggregated reports to target platforms
 | `store/migrations.py` | Lightweight SQLite schema bootstrap and migration tracking |
 | `store/repositories/` | Data access layer: article, source, crawl outcome, report repositories |
 | `orchestration/pipeline.py` | Plain async pipeline runner and routing |
-| `orchestration/nodes.py` | Pipeline nodes: fetch, dedup, summarize, publish |
+| `orchestration/nodes.py` | Pipeline nodes: fetch, dedup, summarize, publish, notify |
 | `orchestration/content_manager.py` | Source dispatch, concurrency control, detail fetch orchestration |
 | `services/` | Business logic: source, article, crawl, dashboard, report services |
 | `api/` | FastAPI application with routers for articles, sources, crawls, tags, reports, dashboard |
@@ -75,6 +75,9 @@ publishers/ — publishes aggregated reports to target platforms
 | `llm_provider/registry.py` | LLM provider registry via LangChain |
 | `utils/json_extraction.py` | Shared JSON extraction from LLM output (code blocks, mixed text) |
 | `prompt.py` | LLM prompts for analysis and report generation |
+| `publishers/base.py` | `BasePublisher` abstract class with `get_config()` and `publish()` |
+| `publishers/email.py` | `EmailPublisher` — SMTP with auto-detect, Markdown→HTML, multipart/alternative |
+| `publishers/registry.py` | Publisher registry — maps channel names to publisher classes |
 
 ### Config
 
@@ -85,7 +88,7 @@ Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.p
 ### Entry Point
 
 `src/comp_synth/main.py` exposes the `compsynth` console script with subcommands:
-- `compsynth` (no subcommand): runs full pipeline (crawl → dedup → summarize → publish)
+- `compsynth` (no subcommand): runs full pipeline (crawl → dedup → summarize → publish → notify)
 - `compsynth serve`: starts FastAPI server on http://127.0.0.1:8000
 - `compsynth crawl`: runs crawl pipeline only
 - `compsynth dashboard`: prints dashboard JSON
@@ -101,6 +104,7 @@ Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.p
 4. Deduplicate via CrawlTracker, merge today's historical content
 5. Summarize: LLM groups articles by topic (3-retry with JSON extraction)
 6. Publish: LLM generates Markdown report to output/digest_YYYYMMDD.md
+7. Notify: send report to configured channels (email via SMTP)
 ```
 
 ## Behavioral Guidelines

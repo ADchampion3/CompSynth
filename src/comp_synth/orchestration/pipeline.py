@@ -5,6 +5,7 @@ from comp_synth.config import settings
 from comp_synth.orchestration.nodes import (
     deduplicate,
     fetch_sources,
+    notify,
     publish,
     summarize,
     use_last_digest,
@@ -36,6 +37,7 @@ def default_pipeline_state() -> PipelineState:
         "topic_groups": [],
         "report": "",
         "publish_results": {},
+        "notification_results": [],
         "errors": [],
         "content_manager": None,
     }
@@ -58,4 +60,5 @@ async def run_pipeline(initial_state: PipelineState | None = None) -> PipelineSt
 
     state.update(await summarize(state))
     state.update(await publish(state))
+    state.update(await notify(state))
     return state

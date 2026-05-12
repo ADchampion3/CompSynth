@@ -200,6 +200,34 @@ async def publish(state: PipelineState) -> dict:
         },
     }
 
+async def notify(state: PipelineState) -> dict:
+    """Send report to all configured notification channels."""
+    from comp_synth.publishers.registry import get_enabled_publishers
+
+    report: str = state.get("report", "")
+    publish_results: dict = state.get("publish_results", {})
+
+    if not report or publish_results.get("status") == "skipped":
+        return {"notification_results": []}
+
+    channels: list[str] = settings.get_channels()
+    if not channels:
+        return {"notification_results": []}
+
+    publishers = get_enabled_publishers(channels)
+    results: list[dict] = []
+    for pub in publishers:
+        try:
+            result = await pub.publish(report, pub.get_config())
+            result["channel"] = pub.channel_name
+            results.append(result)
+        except Exception as e:
+            logger.error("Notification failed for {}: {}", pub.channel_name, e)
+            results.append({"status": "error", "channel": pub.channel_name, "error": str(e)})
+
+    return {"notification_results": results}
+
+
 def use_last_digest(state: PipelineState) -> dict:
     """Reuse the newest generated digest when there is no new content."""
     output_dir = Path(settings.output_dir)

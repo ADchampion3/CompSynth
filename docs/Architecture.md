@@ -12,6 +12,8 @@ subscriptions.yaml
   -> store.CrawlTracker
   -> orchestration.nodes.summarize/publish
   -> output/digest_YYYYMMDD.md
+  -> orchestration.nodes.notify
+  -> publishers (email, ...)
 ```
 
 ## Modules
@@ -28,7 +30,7 @@ subscriptions.yaml
 | LLM providers | `src/comp_synth/llm_provider/` | LangChain provider registry for OpenAI-compatible and Anthropic models. |
 | Store | `src/comp_synth/store/` | SQLite article tracking, site schema cache, migrations. |
 | Store repos | `src/comp_synth/store/repositories/` | Data access layer: article, source, crawl outcome, report, site schema repositories. |
-| Publishers | `src/comp_synth/publishers/` | Publisher interfaces for future output targets. |
+| Publishers | `src/comp_synth/publishers/` | Notification publishers: email (SMTP with auto-detect, Markdown→HTML), registry for channel lookup. |
 | Utilities | `src/comp_synth/utils/` | Shared utilities: logging (Loguru), JSON extraction from LLM output. |
 
 ## Pipeline
@@ -37,7 +39,7 @@ subscriptions.yaml
 fetch_sources
   -> deduplicate
   -> route_after_deduplicate
-       -> summarize -> publish
+       -> summarize -> publish -> notify
        -> use_last_digest
        -> end
 ```
@@ -70,6 +72,14 @@ The `SourceCrawlOutcomeRepository` computes per-source health status (healthy/st
 `SourceOutcomeStore` stores per-source crawl outcomes in SQLite. The outcome table records source key, type, site, URL, new item count, error, and crawl time so zero-result days can be distinguished from fetch errors.
 
 `SchemaStore` stores cached CSS selectors and LLM call timestamps. It also tracks stale selector refresh attempts separately from normal selector learning, preserving the regular 24-hour LLM rate limit while allowing guarded recovery from stale cached selectors.
+
+## Notification
+
+The `notify` pipeline node sends the generated report to all configured channels. Channels are comma-separated in `COMPSYNTH_NOTIFICATION_CHANNELS` (env var). Currently supported: `email`.
+
+`BasePublisher` defines the interface: `get_config()` returns publisher-specific settings from global config, `publish(report, config)` sends the report. Each publisher is registered by channel name in `publishers/registry.py`.
+
+`EmailPublisher` converts Markdown to HTML (via `markdown` library with tables/fenced_code extensions), builds a `multipart/alternative` MIME message (text/plain + text/html), and sends via SMTP. SMTP server auto-detects from sender domain (13 providers preconfigured). Supports both STARTTLS (port 587) and implicit TLS/SSL (port 465).
 
 ## LLM Configuration
 

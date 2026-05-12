@@ -22,5 +22,6 @@ class PipelineState(TypedDict):
     topic_groups: list[TopicGroup]
     report: str
     publish_results: dict
+    notification_results: list[dict]
     errors: list[str]
     content_manager: ContentManager | None
