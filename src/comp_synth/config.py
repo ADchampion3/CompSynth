@@ -42,6 +42,19 @@ class Settings(BaseSettings):
     subscriptions_path: Path = Path("./subscriptions.yaml")
     output_dir: Path = Path("./output")
 
+    # 通知推送（逗号分隔，如 "email"）
+    notification_channels: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 465
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_to: str = ""
+    smtp_use_tls: bool = True
+
+    def get_channels(self) -> list[str]:
+        return [c.strip() for c in self.notification_channels.split(",") if c.strip()]
+
 
 settings = Settings()
 
