@@ -2,8 +2,9 @@ import asyncio
 import re
 from datetime import datetime
 from typing import List
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
 from pydantic import BaseModel
@@ -52,8 +53,12 @@ class DOMExtractor:
     def _preprocess_html(self, html: str) -> str:
         """Stage 0: 清洗 HTML，移除噪声元素和冗余属性"""
         soup = BeautifulSoup(html, "html.parser")
+        soup = self._preprocess_html_soup(soup)
+        return str(soup)
 
-        # 1. 移除噪声元素
+    def _preprocess_html_soup(self, soup: BeautifulSoup) -> BeautifulSoup:
+        """Soup version of _preprocess_html. Operates on soup objects directly."""
+        # 1. Remove noise tags
         noise_tags = [
             "script", "style", "nav", "footer", "header",
             "noscript", "iframe", "svg", "img", "input", "button",
@@ -62,32 +67,170 @@ class DOMExtractor:
         for tag in soup.find_all(noise_tags):
             tag.decompose()
 
-        # 2. 移除内联事件处理器和 data-* 属性
+        # 2. Remove on* and data-* attributes
         for elem in soup.find_all():
             attrs_to_remove = [a for a in elem.attrs if a.startswith("on") or a.startswith("data-")]
             for attr in attrs_to_remove:
                 del elem[attr]
 
-        # 3. 精简 class 属性（移除噪声 class）
-        noise_class_patterns = [
-            "col-", "row", "container", "navbar", "theme-", "no-js",
-            "page-", "widget", "sidebar", "menu", "footer", "header",
-            "breadcrumb", "unittest", "gutter", "align", "visible",
-            "hidden", "active", "hover", "focus", "disabled"
-        ]
+        # 3. Strip noise classes
         for elem in soup.find_all(class_=True):
             classes = elem.get("class", [])
-            cleaned = [c for c in classes if not any(n in c.lower() for n in noise_class_patterns)]
+            cleaned = [c for c in classes if not any(
+                self._matches_at_boundary(c.lower(), n) for n in self._PREPROCESS_NOISE_CLASSES
+            )]
             if cleaned:
-                elem["class"] = " ".join(cleaned)
+                elem["class"] = cleaned
             else:
                 del elem["class"]
 
-        return str(soup)
+        return soup
 
-    async def identify_container_fragments(self, html: str) -> list[ContainerFragment]:
-        """Stage 1: 从列表页 HTML 中识别文章容器片段（去重）"""
-        cleaned_html = self._preprocess_html(html)
+    _PREPROCESS_NOISE_CLASSES = [
+        "col-", "row", "container", "navbar", "theme-", "no-js",
+        "page-", "widget", "sidebar", "menu", "footer", "header",
+        "breadcrumb", "unittest", "gutter", "align", "visible",
+        "hidden", "active", "hover", "focus", "disabled",
+    ]
+
+    _NOISE_CLASS_PATTERNS = [
+        "flex", "grid", "layout-", "md:", "lg:", "sm:", "col-", "row-",
+        "offset-", "padding-", "margin-", "gap-", "items-", "justify-",
+        "w-", "h-", "min-", "max-", "text-center", "text-left", "text-right",
+        "ad-", "ad_", "adsense", "google-ad", "sponsor", "promotion", "banner",
+        "share-", "share_", "social-", "social_", "addtoany", "sharethis",
+        "cookie-", "cookie_", "consent-", "consent_", "gdpr-",
+        "sidebar", "widget", "widget-area",
+        "breadcrumb", "breadcrumbs",
+        "pager", "pagination", "page-nav",
+        "search-", "search_", "newsletter-", "newsletter_",
+        "related-", "recommend-", "similar-",
+    ]
+
+    _DEEP_CLEAN_PATTERNS = {
+        "ads": ["ad-", "ad_", "advertisement", "sponsor", "promotion", "banner", "google-ad", "adsense"],
+        "social": ["share-", "share_", "social-", "social_", "weibo", "twitter", "facebook-share", "addtoany", "sharethis"],
+        "cookie": ["cookie-", "cookie_", "consent-", "consent_", "gdpr-", "privacy-banner", "cookie-notice"],
+        "comments": ["comment-list", "comment-respond", "comments"],
+        "related": ["related-", "related_", "recommend-", "recommend_", "similar-", "also-read", "you-may-also", "read-more"],
+        "pagination": ["pager", "pagination", "page-nav"],
+        "breadcrumbs": ["breadcrumb", "breadcrumbs"],
+        "sidebar": ["sidebar", "widget", "widget-area"],
+        "search": ["search-", "search_", "newsletter-", "newsletter_"],
+    }
+
+    _DEEP_CLEAN_IDS = {
+        "comments", "respond", "comment-respond",
+    }
+
+    _URL_PARAMS_TO_STRIP = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+                            "fbclid", "ref", "source", "spm", "from"}
+
+    @staticmethod
+    def _matches_at_boundary(class_name: str, pattern: str) -> bool:
+        """Check if pattern matches at a word boundary in the class name.
+
+        Matches at start of string or after a delimiter (- or _).
+        Prevents 'ad-' from matching 'articlelist-module-...'.
+        """
+        idx = class_name.find(pattern)
+        while idx != -1:
+            if idx == 0:
+                return True
+            prev = class_name[idx - 1]
+            if prev in "-_":
+                return True
+            idx = class_name.find(pattern, idx + 1)
+        return False
+
+    def _is_noise_class(self, class_name: str) -> bool:
+        """Check if a class name matches noise patterns at word boundaries."""
+        lower = class_name.lower()
+        return any(self._matches_at_boundary(lower, p) for p in self._NOISE_CLASS_PATTERNS)
+
+    def _matches_noise_pattern(self, elem_classes: list[str], elem_id: str) -> bool:
+        """Check if element matches any deep-clean noise pattern."""
+        for category, patterns in self._DEEP_CLEAN_PATTERNS.items():
+            if any(self._matches_at_boundary(cls, p) for cls in elem_classes for p in patterns):
+                return True
+            if category == "comments" and elem_id in self._DEEP_CLEAN_IDS:
+                return True
+        return False
+
+    def _is_hidden(self, elem: Tag) -> bool:
+        """Check if element is hidden via style, hidden attr, or aria-hidden."""
+        if elem.get("hidden") is not None or elem.get("aria-hidden") == "true":
+            return True
+        style = (elem.get("style") or "").lower().replace(" ", "")
+        return "display:none" in style or "visibility:hidden" in style
+
+    def _deep_clean(self, soup: BeautifulSoup) -> BeautifulSoup:
+        """Layer 1: Remove content noise elements (ads, social, cookie, comments, etc.)"""
+        for elem in soup.find_all(True):
+            if elem.attrs is None:
+                continue
+            elem_classes = [c.lower() for c in elem.get("class", [])]
+            elem_id = (elem.get("id") or "").lower()
+
+            if self._matches_noise_pattern(elem_classes, elem_id):
+                elem.decompose()
+                continue
+
+            if self._is_hidden(elem):
+                elem.decompose()
+                continue
+
+            if elem.name == "aside":
+                elem.decompose()
+                continue
+
+            if elem.name == "form" and not elem.find_parent("article"):
+                elem.decompose()
+
+        return soup
+
+    def _strip_attributes(self, soup: BeautifulSoup) -> BeautifulSoup:
+        """Layer 2: Strip non-semantic attributes, normalize URLs."""
+        attrs_to_remove = {"style", "width", "height", "align", "valign", "border",
+                           "cellpadding", "cellspacing", "tabindex", "draggable",
+                           "contenteditable", "target", "rel"}
+
+        for elem in soup.find_all(True):
+            # Remove presentation attributes
+            for attr in list(elem.attrs.keys()):
+                if attr in attrs_to_remove:
+                    del elem[attr]
+
+            # Normalize href URLs
+            if elem.name == "a" and elem.get("href"):
+                elem["href"] = self._clean_url(elem["href"])
+
+        return soup
+
+    def _clean_url(self, url: str) -> str:
+        """Strip tracking parameters from URLs."""
+        if not url or not url.startswith(("http://", "https://", "/")):
+            return url
+        try:
+            parsed = urlparse(url)
+            if not parsed.query:
+                return url
+            params = parse_qs(parsed.query, keep_blank_values=True)
+            cleaned = {k: v for k, v in params.items() if k not in self._URL_PARAMS_TO_STRIP}
+            new_query = urlencode(cleaned, doseq=True) if cleaned else ""
+            return urlunparse(parsed._replace(query=new_query))
+        except Exception:
+            return url
+
+    async def identify_container_fragments(self, html: str, *, cleaned_html: str | None = None) -> list[ContainerFragment]:
+        """Stage 1: 从列表页 HTML 中识别文章容器片段（去重）
+
+        Args:
+            html: Raw HTML (used when cleaned_html is not provided)
+            cleaned_html: Pre-cleaned HTML to use directly (skips preprocessing)
+        """
+        if cleaned_html is None:
+            cleaned_html = self._preprocess_html(html)
         html_preview = cleaned_html[:20000] if len(cleaned_html) > 20000 else cleaned_html
 
         try:
@@ -97,7 +240,7 @@ class DOMExtractor:
                 SystemMessage(content=DOM_PROMPTS["CONTAINER_DISCOVERY"]),
                 HumanMessage(content=f"请分析以下列表页 HTML，识别文章容器并返回每个容器类型的 HTML 片段：\n\n{html_preview}"),
             ])
-            return result.data
+            return result.data if result else []
         except Exception as e:
             logger.warning("[identify_container_fragments] Stage 1 容器识别失败 | error={error}", error=e)
             return []
@@ -111,6 +254,8 @@ class DOMExtractor:
                 SystemMessage(content=DOM_PROMPTS["LIST_ITEM_SELECTOR_FROM_FRAGMENT"]),
                 HumanMessage(content=f"请分析以下文章容器 HTML 片段，生成 CSS selectors：\n\n{fragment.fragment_html}"),
             ])
+            if not result or not result.data:
+                return []
             selectors = [item.model_dump() for item in result.data]
             for s in selectors:
                 if not s.get("item_container"):
@@ -121,41 +266,43 @@ class DOMExtractor:
             return []
 
     async def generate_list_item_selectors(self, html: str) -> List[dict[str, str]]:
-        """两阶段 LLM selector 提取
+        """Main entry point: preprocess HTML and generate CSS selectors.
 
-        Stage 0: HTML 预处理（清洗噪声）
-        Stage 1: LLM 识别文章容器片段（去重）
-        Stage 2: LLM 从每个片段生成 item_selectors
+        Args:
+            html: Raw HTML content
 
         Returns:
-            List[dict[str, str]]: CSS 选择器列表
+            List[dict[str, str]]: CSS selector groups
         """
-        # Stage 1: 识别容器片段
-        fragments = await self.identify_container_fragments(html)
-        if not fragments:
-            logger.warning("[generate_list_item_selectors] Stage 1 未识别到任何容器片段，尝试原始方案")
-            return await self._generate_selectors_legacy(html)
+        # Parse once, run 3-layer cleaning pipeline
+        soup = BeautifulSoup(html, "html.parser")
+        soup = self._preprocess_html_soup(soup)
+        soup = self._deep_clean(soup)
+        soup = self._strip_attributes(soup)
+        cleaned_html = str(soup)
 
+        return await self._generate_selectors_legacy_two_stage(cleaned_html)
+
+    async def _generate_selectors_legacy_two_stage(self, cleaned_html: str) -> List[dict[str, str]]:
+        """Legacy two-stage flow using cleaned HTML."""
+        # Stage 1: identify container fragments
+        fragments = await self.identify_container_fragments(cleaned_html, cleaned_html=cleaned_html)
+        if not fragments:
+            return await self._generate_selectors_legacy(cleaned_html)
+
+        # Stage 2: generate selectors from fragments
         results = await asyncio.gather(*[
-            self.generate_selectors_from_fragment(fragment)
-            for fragment in fragments
+            self.generate_selectors_from_fragment(f) for f in fragments
         ], return_exceptions=True)
-        all_selectors = []
-        failed_count = 0
+
+        all_selectors: list[dict[str, str]] = []
         for result in results:
             if isinstance(result, Exception):
-                failed_count += 1
-                logger.warning("[generate_list_item_selectors] Stage 2 片段处理失败 | error={error}", error=result)
+                logger.warning("[_generate_selectors_legacy_two_stage] Stage 2 失败 | error={error}", error=result)
             else:
                 all_selectors.extend(result)
-        if failed_count:
-            logger.warning("[generate_list_item_selectors] Stage 2 | failed_count={failed}/{total}", failed=failed_count, total=len(fragments))
 
-        if not all_selectors:
-            logger.warning("[generate_list_item_selectors] Stage 2 未生成有效 selectors，尝试原始方案")
-            return await self._generate_selectors_legacy(html)
-
-        return all_selectors
+        return all_selectors if all_selectors else await self._generate_selectors_legacy(cleaned_html)
 
     async def _generate_selectors_legacy(self, html: str) -> List[dict[str, str]]:
         """原始单阶段 LLM selector 生成（后备方案）"""
@@ -168,12 +315,12 @@ class DOMExtractor:
                 SystemMessage(content=DOM_PROMPTS["LIST_ITEM_SELECTOR"]),
                 HumanMessage(content=f"请分析以下列表页 HTML 结构并生成 selectors：\n\n{html_preview}"),
             ])
+            if not result or not result.data:
+                return []
             return [item.model_dump() for item in result.data]
         except Exception as e:
             logger.warning("[_generate_selectors_legacy] 原始方案 with_structured_output 失败 | error={error}", error=e)
             return []
-
-
 
     def extract_list_items_with_selectors(self, html: str, list_selectors: list[dict[str, str]]) -> list[dict]:
         """使用 CSS selectors 从列表页 HTML 中提取所有文章条目信息
@@ -229,7 +376,6 @@ class DOMExtractor:
                 if not url and container.name == "a" and container.get("href"):
                     url = container["href"]
 
-                # 提取标题
                 title = ""
                 if title_selector:
                     try:
@@ -239,7 +385,6 @@ class DOMExtractor:
                     if title_elem:
                         title = title_elem.get_text(strip=True)
 
-                # 提取摘要
                 summary = ""
                 if summary_selector:
                     try:
@@ -249,7 +394,6 @@ class DOMExtractor:
                     if summary_elem:
                         summary = summary_elem.get_text(strip=True)
 
-                # 提取时间
                 published_at = None
                 if time_selector:
                     try:
@@ -270,8 +414,7 @@ class DOMExtractor:
                             if time_text:
                                 published_at = parse_published_at(time_text)
 
-                if title and url:  # 至少需要标题和 URL
-                    # 去重：基于 URL 去重
+                if title and url:
                     if url not in seen_urls:
                         seen_urls.add(url)
                         all_items.append({
