@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Noise Heavy Page</title>
+    <script src="/analytics.js"></script>
+    <style>.ad { display: block; }</style>
+</head>
+<body>
+    <!-- Cookie consent -->
+    <div class="cookie-banner gdpr-consent" id="consent-popup">
+        <p>We use cookies.</p>
+        <button>Accept</button>
+    </div>
+
+    <!-- Top ad -->
+    <div class="ad-header advertisement">
+        <a href="https://ads.example.com">Buy stuff!</a>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="main-nav">
+        <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/blog">Blog</a></li>
+        </ul>
+    </nav>
+
+    <!-- Breadcrumbs -->
+    <div class="breadcrumb">
+        <a href="/">Home</a> &gt; <a href="/blog">Blog</a> &gt; <span>Articles</span>
+    </div>
+
+    <div class="wrapper flex layout-main">
+        <!-- Main content -->
+        <main class="content col-8 md:col-12">
+            <section class="article-list">
+                <article class="entry" role="article">
+                    <div class="entry-header">
+                        <h2 class="entry-title"><a href="/blog/post-1">First Post</a></h2>
+                    </div>
+                    <div class="entry-content">
+                        <p class="excerpt">This is the first post summary with important details.</p>
+                    </div>
+                    <div class="entry-meta">
+                        <time datetime="2026-05-12">May 12, 2026</time>
+                        <span class="author">John Doe</span>
+                    </div>
+                    <!-- Share buttons inline -->
+                    <div class="share-this social-sharing">
+                        <a href="https://twitter.com/intent/tweet?url=/blog/post-1">Tweet</a>
+                        <a href="https://facebook.com/sharer?u=/blog/post-1">Share</a>
+                    </div>
+                </article>
+
+                <article class="entry" role="article">
+                    <div class="entry-header">
+                        <h2 class="entry-title"><a href="/blog/post-2">Second Post</a></h2>
+                    </div>
+                    <div class="entry-content">
+                        <p class="excerpt">Second post about web development trends in 2026.</p>
+                    </div>
+                    <div class="entry-meta">
+                        <time datetime="2026-05-10">May 10, 2026</time>
+                        <span class="author">Jane Smith</span>
+                    </div>
+                </article>
+
+                <article class="entry" role="article">
+                    <div class="entry-header">
+                        <h2 class="entry-title"><a href="/blog/post-3">Third Post</a></h2>
+                    </div>
+                    <div class="entry-content">
+                        <p class="excerpt">Third post exploring new JavaScript frameworks.</p>
+                    </div>
+                    <div class="entry-meta">
+                        <time datetime="2026-05-08">May 8, 2026</time>
+                        <span class="author">Bob Wilson</span>
+                    </div>
+                </article>
+            </section>
+
+            <!-- Pagination -->
+            <nav class="pager pagination">
+                <a href="/blog?page=1">1</a>
+                <a href="/blog?page=2">2</a>
+                <a href="/blog?page=3">Next</a>
+            </nav>
+        </main>
+
+        <!-- Sidebar -->
+        <aside class="sidebar widget-area col-4">
+            <div class="widget search-widget">
+                <form action="/search" method="get">
+                    <input type="text" name="q" placeholder="Search...">
+                    <button type="submit">Go</button>
+                </form>
+            </div>
+
+            <div class="widget">
+                <h3>Categories</h3>
+                <ul>
+                    <li><a href="/cat/tech">Tech</a></li>
+                    <li><a href="/cat/web">Web Dev</a></li>
+                </ul>
+            </div>
+
+            <div class="ad-sidebar sponsor">
+                <p>Sponsored Content</p>
+                <a href="https://sponsor.example.com">Visit Sponsor</a>
+            </div>
+
+            <div class="widget newsletter-signup">
+                <h3>Newsletter</h3>
+                <form action="/subscribe">
+                    <input type="email" name="email" placeholder="Your email">
+                    <button type="submit">Subscribe</button>
+                </form>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Social floating bar -->
+    <div class="addtoany share-bar">
+        <a href="https://twitter.com/share">Twitter</a>
+        <a href="https://linkedin.com/share">LinkedIn</a>
+        <a href="https://reddit.com/submit">Reddit</a>
+    </div>
+
+    <!-- Comments section -->
+    <section id="comments" class="comment-respond">
+        <h3>Leave a Comment</h3>
+        <form action="/comment">
+            <textarea placeholder="Your comment"></textarea>
+            <button type="submit">Submit</button>
+        </form>
+        <div class="comment-list">
+            <div class="comment">
+                <p>Great article!</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Related articles -->
+    <div class="related-articles also-read">
+        <h3>You May Also Like</h3>
+        <ul>
+            <li><a href="/blog/related-1">Related Article 1</a></li>
+            <li><a href="/blog/related-2">Related Article 2</a></li>
+        </ul>
+    </div>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+        <p>&copy; 2026 Blog</p>
+    </footer>
+
+    <!-- Hidden elements -->
+    <div hidden>Hidden content</div>
+    <div aria-hidden="true">Screen reader hidden</div>
+    <div style="display:none">Display none hidden</div>
+</body>
+</html>
