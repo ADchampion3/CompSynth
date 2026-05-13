@@ -79,6 +79,8 @@ def main(argv: list[str] | None = None) -> None:
     source_import.add_argument("--path", type=Path, default=None, help="Subscriptions YAML path.")
     source_export = source_subparsers.add_parser("export", help="Export SQLite sources to YAML.")
     source_export.add_argument("--output", type=Path, default=None, help="Output YAML path.")
+    notify_parser = subparsers.add_parser("notify", help="Send digest via configured notification channels.")
+    notify_parser.add_argument("--file", type=Path, default=None, help="Specific Markdown file to send.")
     serve_parser = subparsers.add_parser("serve", help="Start the CompSynth HTTP API server.")
     serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
     serve_parser.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000).")
@@ -96,6 +98,9 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "sources":
         print(json.dumps(sources_command(args), ensure_ascii=False))
         return
+    if args.command == "notify":
+        print(json.dumps(notify_command(args), ensure_ascii=False))
+        return
     if args.command == "serve":
         serve_command(args)
         return
@@ -105,6 +110,39 @@ def main(argv: list[str] | None = None) -> None:
 
 def crawl_command(db_path: Path | None = None) -> dict:
     return _crawl_result_to_dict(asyncio.run(run(db_path)))
+
+
+def notify_command(args) -> dict:
+    from comp_synth.config import settings
+    from comp_synth.publishers.registry import get_enabled_publishers
+
+    channels = settings.get_channels()
+    if not channels:
+        return {"status": "skipped", "error": "no channels configured"}
+
+    if getattr(args, "file", None):
+        path = args.file
+        if not path.exists():
+            return {"status": "error", "error": f"file not found: {path}"}
+        if path.suffix.lower() != ".md":
+            return {"status": "error", "error": f"only .md files are supported: {path}"}
+        report = path.read_text(encoding="utf-8")
+    else:
+        output_dir = Path(settings.output_dir)
+        digests = sorted(output_dir.glob("digest_*.md"), key=lambda p: p.stat().st_mtime)
+        if not digests:
+            return {"status": "error", "error": "no digest found"}
+        path = digests[-1]
+        report = path.read_text(encoding="utf-8")
+
+    publishers = get_enabled_publishers(channels)
+    results: list[dict] = []
+    for pub in publishers:
+        result = asyncio.run(pub.publish(report, pub.get_config()))
+        result["channel"] = pub.channel_name
+        results.append(result)
+
+    return {"status": "sent", "source": str(path), "results": results}
 
 
 def serve_command(args) -> None:
