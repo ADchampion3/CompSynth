@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     anthropic_base_url: str = ""
     model: str = "gpt-4o-mini"
     llm_batch_size: int = 10
+    summarize_chunk_size: int = 50
 
     # 存储
     crawl_db_path: Path = Path("./data/crawl_state.db")

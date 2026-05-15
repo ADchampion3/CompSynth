@@ -26,10 +26,15 @@ class AdaptiveWebCrawler(BaseCrawler):
         4. LLM 提取（仅在允许时，每站每天 1 次）
     """
 
-    def __init__(self):
-        self._tracker = CrawlTracker()
-        self._schema_store = SchemaStore()
-        self._source_outcome_store = SourceOutcomeStore()
+    def __init__(
+        self,
+        crawl_tracker: CrawlTracker | None = None,
+        schema_store: SchemaStore | None = None,
+        source_outcome_store: SourceOutcomeStore | None = None,
+    ):
+        self._tracker = crawl_tracker or CrawlTracker()
+        self._schema_store = schema_store or SchemaStore()
+        self._source_outcome_store = source_outcome_store or SourceOutcomeStore()
         self._dom_extractor = DOMExtractor()
 
     def _detect_site(self, url: str) -> str:

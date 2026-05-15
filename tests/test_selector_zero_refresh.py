@@ -173,6 +173,9 @@ def test_content_manager_records_source_outcomes(monkeypatch):
         def save_articles(self, items):
             pass
 
+        def preload_crawled_urls(self):
+            pass
+
     manager = ContentManager(
         crawl_tracker=FakeTracker(),
         source_outcome_store=FakeOutcomeStore(),

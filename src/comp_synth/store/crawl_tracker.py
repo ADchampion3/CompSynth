@@ -13,6 +13,7 @@ class CrawlTracker:
 
     def __init__(self):
         self._engine, self._session_factory = get_engine(settings.crawl_db_path, "crawl_state.db")
+        self._crawled_urls: set[str] | None = None
 
     def _with_session(self, fn):
         """Execute a function within a session context."""
@@ -21,8 +22,17 @@ class CrawlTracker:
             session.commit()
             return result
 
+    def preload_crawled_urls(self) -> None:
+        """Load all article IDs into memory for fast dedup checks."""
+        if self._crawled_urls is not None:
+            return
+        self._crawled_urls = set(self._with_session(lambda repo: repo.get_all_article_ids()))
+
     def is_crawled(self, source: str, url: str) -> bool:
-        """Check if URL has already been crawled."""
+        """Check if URL has already been crawled. Uses in-memory cache when available."""
+        aid = f"{source}:{url}"
+        if self._crawled_urls is not None:
+            return aid in self._crawled_urls
         return self._with_session(lambda repo: repo.is_crawled(source, url))
 
     def get_last_crawl_time(self, source: str, feed_url: str) -> datetime | None:
@@ -80,6 +90,8 @@ class CrawlTracker:
             repo = ArticleRepository(session)
             for item in items:
                 repo.save(item)
+                if self._crawled_urls is not None:
+                    self._crawled_urls.add(item.id)
             session.commit()
 
     def get_article_by_id(self, article_id: str) -> dict | None:

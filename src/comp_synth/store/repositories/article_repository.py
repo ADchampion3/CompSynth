@@ -256,6 +256,11 @@ class ArticleRepository:
         rows = list(self._session.execute(stmt).scalars().all())
         return rows[0] if rows and rows[0] is not None else None
 
+    def get_all_article_ids(self) -> list[str]:
+        """Get all article IDs for in-memory dedup cache."""
+        stmt = select(ArticleModel.article_id)
+        return list(self._session.execute(stmt).scalars().all())
+
     def get_distinct_sources(self) -> list[str]:
         """Get distinct source keys that have at least one article."""
         rows = self._session.execute(

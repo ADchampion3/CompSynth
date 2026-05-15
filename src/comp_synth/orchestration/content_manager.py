@@ -218,7 +218,14 @@ class ContentManager:
             return None
 
         if source_type not in self._crawlers:
-            self._crawlers[source_type] = self.CRAWLER_MAP[source_type]()
+            crawler_cls = self.CRAWLER_MAP[source_type]
+            if crawler_cls is AdaptiveWebCrawler:
+                self._crawlers[source_type] = crawler_cls(
+                    crawl_tracker=self._tracker,
+                    source_outcome_store=self._source_outcome_store,
+                )
+            else:
+                self._crawlers[source_type] = crawler_cls()
 
         return self._crawlers[source_type]
 
@@ -518,6 +525,8 @@ class ContentManager:
 
         from comp_synth.config import settings
 
+        self._tracker.preload_crawled_urls()
+
         source_semaphore = asyncio.Semaphore(settings.max_concurrent_sources)
 
         async def _bounded_fetch(source):
@@ -547,6 +556,9 @@ class ContentManager:
             logger.info(f"[ContentManager] 开始批量摘要: {len(result.items)} 条内容")
             result.items = await self._batch_summarize_items(result.items)
             self._tracker.save_articles(result.items)
+            # Free memory — full content is now in DB, downstream nodes only need summary
+            for item in result.items:
+                item.content = ""
             logger.info(f"[ContentManager] 批量摘要并持久化完成: {len(result.items)} 条")
 
         return result
