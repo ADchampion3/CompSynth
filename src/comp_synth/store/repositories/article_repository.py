@@ -197,6 +197,15 @@ class ArticleRepository:
         )
         return list(self._session.execute(stmt).scalars().all())
 
+    def get_today_items_all_sources(self) -> list[ArticleModel]:
+        """Get all items crawled today across all sources (single query)."""
+        today = datetime.now(timezone.utc).date()
+        stmt = select(ArticleModel).where(
+            ArticleModel.crawled_at
+            >= datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc),
+        )
+        return list(self._session.execute(stmt).scalars().all())
+
     def get_expired_article_ids(self, ttl_days: int = 30) -> list[str]:
         """Get article IDs older than TTL days."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=ttl_days)

@@ -144,7 +144,7 @@ def test_fetch_sources_returns_source_counts(tmp_path, monkeypatch):
             return [source]
 
     class FakeContentManager:
-        async def fetch_all(self, sources):
+        async def fetch_all(self, sources, run_id=None):
             return SimpleNamespace(
                 items=[],
                 errors=[],

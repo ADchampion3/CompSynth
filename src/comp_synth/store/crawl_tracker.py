@@ -6,6 +6,7 @@ from comp_synth.config import settings
 from comp_synth.schema.content_item import ContentItem
 from comp_synth.store.database import get_engine
 from comp_synth.store.repositories.article_repository import ArticleRepository
+from comp_synth.store.repositories.crawl_run_repository import CrawlRunRepository
 
 
 class CrawlTracker:
@@ -44,6 +45,25 @@ class CrawlTracker:
         with self._session_factory() as session:
             repo = ArticleRepository(session)
             items = repo.get_today_items(source)
+            return [
+                {
+                    "article_id": item.article_id,
+                    "source": item.source,
+                    "url": item.url,
+                    "crawled_at": item.crawled_at.isoformat() if item.crawled_at else "",
+                    "summary": item.summary,
+                    "title": item.title,
+                    "metadata": item.extra_metadata,
+                    "content": item.content,
+                }
+                for item in items
+            ]
+
+    def get_today_items_all_sources(self) -> list[dict]:
+        """Get all items crawled today across all sources (single query)."""
+        with self._session_factory() as session:
+            repo = ArticleRepository(session)
+            items = repo.get_today_items_all_sources()
             return [
                 {
                     "article_id": item.article_id,
@@ -138,6 +158,36 @@ class CrawlTracker:
     def get_expired_article_ids(self, ttl_days: int = 30) -> list[str]:
         """Get article IDs older than TTL for vector store cleanup."""
         return self._with_session(lambda repo: repo.get_expired_article_ids(ttl_days))
+
+    # -- Crawl run checkpoint helpers --
+
+    def start_crawl_run(self, run_id: str, scope: str = "full") -> None:
+        """Start a new crawl run for checkpoint tracking."""
+        with self._session_factory() as session:
+            repo = CrawlRunRepository(session)
+            repo.start(run_id, scope)
+            session.commit()
+
+    def finish_crawl_run(self, run_id: str, status: str, new_items: int = 0, errors: list[str] | None = None) -> None:
+        """Finish a crawl run."""
+        with self._session_factory() as session:
+            repo = CrawlRunRepository(session)
+            repo.finish(run_id, status, new_items=new_items, errors=errors)
+            session.commit()
+
+    def record_source_in_run(self, run_id: str, source_key: str, source_type: str, source_url: str, status: str, new_items: int = 0, error_text: str | None = None) -> None:
+        """Record per-source outcome for the current crawl run."""
+        with self._session_factory() as session:
+            repo = CrawlRunRepository(session)
+            repo.record_source(run_id, source_key, source_type, source_url, status, new_items=new_items, error_text=error_text)
+            session.commit()
+
+    def get_completed_source_keys(self, run_id: str) -> set[str]:
+        """Get source keys already completed in the current run."""
+        with self._session_factory() as session:
+            repo = CrawlRunRepository(session)
+            sources = repo.list_sources(run_id)
+            return {s.source_key for s in sources if s.status in ("completed", "error")}
 
     def set_liked(self, source: str, url: str, liked: bool = True) -> None:
         """Set or unset the liked status of an article."""

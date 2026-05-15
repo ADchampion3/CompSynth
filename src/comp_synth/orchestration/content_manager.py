@@ -509,6 +509,7 @@ class ContentManager:
     async def fetch_all(
         self,
         sources: list[dict],
+        run_id: str | None = None,
     ) -> FetchResult:
         """
         Fetch content from all sources with bounded concurrency,
@@ -516,6 +517,7 @@ class ContentManager:
 
         Args:
             sources: List of source configs from subscriptions.yaml
+            run_id: Optional crawl run ID for checkpoint/resume.
 
         Returns:
             FetchResult with items, errors, and source counts
@@ -527,6 +529,22 @@ class ContentManager:
 
         self._tracker.preload_crawled_urls()
 
+        # Start checkpoint tracking if run_id provided
+        if run_id:
+            self._tracker.start_crawl_run(run_id)
+
+        # Resume: skip sources already completed in this run
+        completed_keys: set[str] = set()
+        if run_id:
+            completed_keys = self._tracker.get_completed_source_keys(run_id)
+            if completed_keys:
+                logger.info(f"[ContentManager] 断点续传: 跳过 {len(completed_keys)} 个已完成源")
+
+        sources_to_fetch = [
+            s for s in sources
+            if (s.get("name") or s.get("url", "unknown")) not in completed_keys
+        ]
+
         source_semaphore = asyncio.Semaphore(settings.max_concurrent_sources)
 
         async def _bounded_fetch(source):
@@ -534,7 +552,7 @@ class ContentManager:
                 return await self._fetch_single_source(source)
 
         # Run sources with bounded concurrency
-        tasks = [_bounded_fetch(source) for source in sources]
+        tasks = [_bounded_fetch(source) for source in sources_to_fetch]
         results = await asyncio.gather(*tasks)
 
         # Aggregate results — items have detail content but no summary yet
@@ -547,9 +565,20 @@ class ContentManager:
                 result.items.extend(items)
                 result.source_counts[source_name] = len(items)
 
-        for source, (source_name, items, error) in zip(sources, results, strict=False):
+        for source, (source_name, items, error) in zip(sources_to_fetch, results, strict=False):
             count = 0 if error or items is None else len(items)
             self._source_outcome_store.record_source_outcome(source, count, error)
+            # Record per-source checkpoint
+            if run_id:
+                self._tracker.record_source_in_run(
+                    run_id=run_id,
+                    source_key=source_name,
+                    source_type=source.get("type", "unknown"),
+                    source_url=source.get("url", ""),
+                    status="error" if error else "completed",
+                    new_items=count,
+                    error_text=error,
+                )
 
         # Batch LLM summarize all collected items
         if result.items:
@@ -564,14 +593,8 @@ class ContentManager:
         return result
 
     def get_today_items(self) -> list[dict]:
-        """获取今日从所有来源已存储的历史内容 (由策略工厂驱动,无硬编码)."""
-        all_items = []
-        for source_type in self._strategy_factory.get_all_source_types():
-            strategy = self._strategy_factory.get_strategy(source_type)
-            if strategy:
-                items = strategy.get_today_items(self._tracker)
-                all_items.extend(items)
-        return all_items
+        """获取今日从所有来源已存储的历史内容（单次查询）."""
+        return self._tracker.get_today_items_all_sources()
 
     def merge_historical_items(
         self,

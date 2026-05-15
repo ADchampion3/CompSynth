@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -38,7 +39,8 @@ async def fetch_sources(state: PipelineState) -> dict:
 
     # Create ContentManager and store in state for later use by deduplicate
     manager = ContentManager()
-    result = await manager.fetch_all(sources)
+    run_id = f"pipeline-{uuid.uuid4().hex[:12]}"
+    result = await manager.fetch_all(sources, run_id=run_id)
 
     logger.info(
         f"内容采集完成: {len(result.items)} 条内容, "
@@ -50,6 +52,7 @@ async def fetch_sources(state: PipelineState) -> dict:
         "raw_items": result.items,
         "source_counts": result.source_counts,
         "content_manager": manager,
+        "crawl_run_id": run_id,
         "errors": result.errors,
     }
 
