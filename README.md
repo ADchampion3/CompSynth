@@ -4,7 +4,7 @@
 
 本地内容聚合与发布系统。抓取 RSS、Web（静态/JS渲染）内容，通过 LLM 生成摘要，输出 Markdown 日报。
 
-[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/) [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react)](https://react.dev/) [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat&logo=typescript)](https://www.typescriptlang.org/)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/) [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react)](https://react.dev/) [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat&logo=typescript)](https://www.typescriptlang.org/) [![Crawlee](https://img.shields.io/badge/Crawlee-Python-orange?style=flat)](https://crawlee.dev/python/)
 [![GitHub stars](https://img.shields.io/github/stars/ADchampion3/CompSynth?style=flat)](https://github.com/ADchampion3/CompSynth/stargazers)
 
 [Website](https://github.com/ADchampion3/CompSynth)  · [Contributing](CONTRIBUTING.md)
@@ -30,11 +30,13 @@
 
 ## 功能
 
-- **多源抓取** — RSS、Web（静态）、JavaScript 渲染页面
-- **智能去重** — SQLite实现持久化去重
-- **LLM 摘要** — 支持 OpenAI 和 Anthropic兼容 API
+- **多源抓取** — RSS、Web（静态）、JavaScript 渲染页面（Crawlee 驱动）
+- **智能去重** — SQLite 实现持久化去重
+- **HTML 预处理** — 3 层清洗管线（压缩 → 深度清理 → 属性剥离），提高 Selector 有效性
+- **LLM 摘要** — 支持 OpenAI 和 Anthropic 兼容 API
 - **Web UI** — 收件箱、订阅源管理、文章阅读
 - **选择器编辑器** — CSS 选择器 + LLM 辅助重提取
+- **邮件推送** — SMTP 自动检测，Markdown→HTML，`compsynth notify` 独立发送
 - **后端配置同步** — 设置页面直接修改，无需重启
 
 ---
@@ -83,29 +85,38 @@ npm run dev
 | `uv run compsynth reports get <id>` | 读取指定报告内容 |
 | `uv run compsynth sources import` | 从 YAML 导入订阅源到数据库 |
 | `uv run compsynth sources export` | 从数据库导出订阅源到 YAML |
+| `uv run compsynth notify` | 发送最新日报到已配置的通知渠道 |
+| `uv run compsynth notify --file <path>` | 发送指定 Markdown 文件 |
 
 ---
 
 ## 架构
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────────┐
-│   RSS        │────>│  Crawlers    │────>│   SQLite         │
-│   Web        │     │  (fetch)     │     │   (dedup/tracking)
-│   JavaScript │     └──────┬───────┘     └────────┬─────────┘
-└──────────────┘            │                       │
-                           ▼                       ▼
-                    ┌──────────────┐     ┌──────────────────┐
-                    │  FastAPI     │     │   LLM            │
-                    │  (Web UI)    │     │   (summarize)    │
-                    └──────────────┘     └──────────────────┘
+┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│   RSS        │────>│  Crawlers        │────>│   SQLite         │
+│   Web        │     │  (Crawlee)       │     │   (dedup/tracking)
+│   JavaScript │     └────────┬─────────┘     └────────┬─────────┘
+└──────────────┘              │                         │
+                             ▼                         ▼
+                      ┌──────────────┐     ┌──────────────────┐
+                      │  FastAPI     │     │   LLM            │
+                      │  (Web UI)    │     │   (summarize)    │
+                      └──────────────┘     └────────┬─────────┘
+                                                    │
+                                             ┌──────▼─────────┐
+                                             │  Publishers    │
+                                             │  (Email/...)   │
+                                             └────────────────┘
 ```
 
 | 层级 | 技术栈 |
 |------|--------|
+| 爬虫 | Crawlee (BeautifulSoup + Playwright) |
 | 后端 | Python 3.11+, FastAPI, SQLite |
 | 前端 | React, TypeScript, Vite |
 | LLM | OpenAI 兼容 API / Anthropic |
+| 推送 | SMTP (自动检测), Markdown→HTML |
 
 ---
 
@@ -175,6 +186,12 @@ cp .env.example .env
 | `COMPSYNTH_DATA_DIR` | 数据目录 | ./data |
 | `COMPSYNTH_SUBSCRIPTIONS_PATH` | 订阅源配置文件路径 | ./subscriptions.yaml |
 | `COMPSYNTH_TIME_THRESHOLD_DAYS` | 内容时间阈值（天） | 7 |
+| `COMPSYNTH_NOTIFICATION_CHANNELS` | 推送渠道（逗号分隔，如 `email`） | - |
+| `COMPSYNTH_SMTP_HOST` | SMTP 服务器地址 | 自动检测 |
+| `COMPSYNTH_SMTP_USER` | SMTP 用户名 | - |
+| `COMPSYNTH_SMTP_PASSWORD` | SMTP 密码/授权码 | - |
+| `COMPSYNTH_SMTP_FROM` | 发件人地址 | - |
+| `COMPSYNTH_SMTP_TO` | 收件人地址 | - |
 
 完整配置参考见 `.env.example`。
 
@@ -182,11 +199,11 @@ cp .env.example .env
 
 ## Roadmap
 
-- [ ] **预处理提高 Selectors 有效性** — 爬取前预处理 URL/页面结构，减少无效 Selector
+- [x] **预处理提高 Selectors 有效性** — 3 层 HTML 预处理管线（压缩 → 深度清理 → 属性剥离）
+- [x] **推送功能** — 邮件推送（SMTP 自动检测），`compsynth notify` 独立发送
 - [ ] **定时任务** — 支持配置自动定期抓取和生成日报
-- [ ] **推送功能** — 日报生成后自动推送到微信、邮件、Telegram 等平台
 - [ ] **增强信息源与反爬通用性** — 支持更多网站类型，自动处理常见反爬机制（UA、代理池、验证码等）
-- [ ] **封装为SKILL** — 增强CLI通用性, 封装为SKILL供Agent使用
+- [ ] **封装为SKILL** — 增强CLI通用性，封装为SKILL供Agent使用
 
 ---
 
