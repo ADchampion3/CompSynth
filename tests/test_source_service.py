@@ -280,7 +280,10 @@ sources:
     # Read created_at directly from the underlying engine
     from sqlalchemy import text
 
-    with service._engine.connect() as conn:
+    from comp_synth.store.database import get_engine
+
+    engine, _ = get_engine(service._source_db_path, "crawl_state.db")
+    with engine.connect() as conn:
         original_created = conn.execute(
             text("SELECT created_at FROM sources WHERE source_key = :key"),
             {"key": "https://persist.test/feed.xml"},
@@ -289,7 +292,7 @@ sources:
     # Re-import same YAML
     service.import_yaml()
 
-    with service._engine.connect() as conn:
+    with engine.connect() as conn:
         after_created = conn.execute(
             text("SELECT created_at FROM sources WHERE source_key = :key"),
             {"key": "https://persist.test/feed.xml"},

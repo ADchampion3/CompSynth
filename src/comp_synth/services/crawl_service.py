@@ -2,13 +2,10 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from comp_synth.orchestration.pipeline import run_pipeline
 from comp_synth.orchestration.state import PipelineState
 from comp_synth.schema.crawl_run import CrawlRun, CrawlRunSource
-from comp_synth.store.migrations import bootstrap_database
+from comp_synth.store.database import get_engine
 from comp_synth.store.models import resolve_db_path
 
 PipelineRunner = Callable[[PipelineState | None], Awaitable[PipelineState]]
@@ -20,10 +17,9 @@ class CrawlService:
     def __init__(self, pipeline_runner: PipelineRunner = run_pipeline, crawl_db_path: Path | None = None) -> None:
         self._pipeline_runner = pipeline_runner
         self._crawl_db_path = resolve_db_path(Path(crawl_db_path), "crawl_state.db") if crawl_db_path else None
-        self._engine = None
         self._session_factory = None
         if self._crawl_db_path:
-            self._init_db()
+            _, self._session_factory = get_engine(self._crawl_db_path, "crawl_state.db")
 
     async def run_all(self, initial_state: PipelineState | None = None) -> PipelineState:
         if self._session_factory is None:
@@ -89,12 +85,6 @@ class CrawlService:
         """List per-source child runs for a crawl run."""
         self._require_db()
         return self._with_run_repository(lambda repo: repo.list_sources(run_id))
-
-    def _init_db(self) -> None:
-        self._crawl_db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._engine = create_engine(f"sqlite:///{self._crawl_db_path}", echo=False)
-        bootstrap_database(self._engine)
-        self._session_factory = sessionmaker(bind=self._engine)
 
     def _require_db(self) -> None:
         if self._session_factory is None:

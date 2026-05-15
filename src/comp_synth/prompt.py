@@ -151,6 +151,31 @@ def build_summary_prompt(tags: list[str] | None = None) -> str:
 {{"summary": "总结内容...", "tags": ["标签1", "标签2"]}}"""
 
 
+def build_batch_summary_prompt(articles: list[dict], tags: list[str] | None = None) -> str:
+    """Build a batch summary prompt for multiple articles in one LLM call."""
+    vocabulary = _sanitize_tags(tags) if tags else DEFAULT_TAG_VOCABULARY
+    tag_list = "、".join(vocabulary)
+    entries = []
+    for i, article in enumerate(articles, 1):
+        title = article.get("title", "")
+        content = article.get("content", "")[:3000]
+        entries.append(f"[{i}] 标题：{title}\n内容：{content}")
+    articles_text = "\n\n".join(entries)
+    return f"""请分析以下 {len(articles)} 篇文章，为每篇完成两个任务：
+1. 用2-3句话总结核心内容（保留关键信息，总字数控制在200字以内）
+2. 从以下标签中选择1-3个最合适的分类标签：{tag_list}
+
+{articles_text}
+
+请直接返回 JSON 数组，不要 markdown 代码块：
+[
+  {{"summary": "总结内容...", "tags": ["标签1", "标签2"]}},
+  ...
+]
+
+数组长度必须恰好为 {len(articles)}，与输入文章一一对应。"""
+
+
 # Backward-compatible constant for callers that haven't migrated yet
 ARTICLE_SUMMARY_PROMPT = build_summary_prompt()
 

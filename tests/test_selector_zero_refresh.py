@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
 from comp_synth.orchestration.content_manager import ContentManager
+from comp_synth.schema.content_item import WebPageItem
 from comp_synth.store.models import Base
 from comp_synth.store.repositories.site_schema_repository import SiteSchemaRepository
 from comp_synth.store.repositories.source_crawl_outcome_repository import (
@@ -168,15 +169,22 @@ def test_content_manager_records_source_outcomes(monkeypatch):
         def record_source_outcome(self, source, count, error):
             records.append((source, count, error))
 
+    class FakeTracker:
+        def save_articles(self, items):
+            pass
+
     manager = ContentManager(
-        crawl_tracker=object(),
+        crawl_tracker=FakeTracker(),
         source_outcome_store=FakeOutcomeStore(),
     )
 
     async def fake_fetch_single_source(source):
         if source["name"] == "Broken":
             return (source["name"], None, "boom")
-        return (source["name"], [object(), object()], None)
+        return (source["name"], [
+            WebPageItem(url="https://good.test/1", title="A"),
+            WebPageItem(url="https://good.test/2", title="B"),
+        ], None)
 
     monkeypatch.setattr(manager, "_fetch_single_source", fake_fetch_single_source)
 

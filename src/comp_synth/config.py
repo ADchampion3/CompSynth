@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""
     model: str = "gpt-4o-mini"
+    llm_batch_size: int = 10
 
     # 存储
     crawl_db_path: Path = Path("./data/crawl_state.db")
@@ -30,6 +31,7 @@ class Settings(BaseSettings):
     # 爬虫
     request_timeout: int = 30
     max_concurrent_requests: int = 5
+    max_concurrent_sources: int = 10
     crawl_domain_delay: float = 1.0
     list_page_time_threshold_days: int = 7
     list_page_count_threshold: int = 20

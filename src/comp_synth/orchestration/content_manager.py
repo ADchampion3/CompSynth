@@ -16,6 +16,7 @@ from comp_synth.schema.content_item import ContentItem, RSSItem, WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.source_outcome_store import SourceOutcomeStore
 from comp_synth.utils.json_extraction import coerce_text_content, extract_json
+from comp_synth.utils.rate_limiter import DomainRateLimiter
 
 # ============================================================================
 # Source Strategy Pattern - 消除硬编码的来源类型
@@ -173,9 +174,10 @@ class ContentManager:
     1. Crawler selection based on source type
     2. User selector management (passing from subscriptions.yaml)
     3. Deduplication via CrawlTracker
-    4. Detail-fetch orchestration (always fetch detail page + LLM summarize)
-    5. Persistence to CrawlTracker after all items collected
-    6. Cross-source aggregation and error handling
+    4. Detail-fetch orchestration (always fetch detail page)
+    5. Batch LLM summarization after all sources fetched
+    6. Persistence to CrawlTracker after summarization
+    7. Cross-source aggregation and error handling
     """
 
     CRAWLER_MAP: dict[str, type[BaseCrawler]] = {
@@ -195,40 +197,19 @@ class ContentManager:
         source_outcome_store: SourceOutcomeStore | None = None,
         tag_vocabulary: list[str] | None = None,
     ):
-        """
-        Initialize ContentManager.
-
-        Args:
-            crawl_tracker: Optional CrawlTracker instance. If not provided,
-                          a new one will be created. Exposed for testing.
-            strategy_factory: Optional strategy factory. If not provided,
-                            a default factory with RSS, Web, JavaScript strategies
-                            will be created.
-            source_outcome_store: Optional SourceOutcomeStore instance.
-            tag_vocabulary: Optional list of allowed tags. If not provided,
-                           defaults from prompt.py will be used.
-        """
         self._tracker = crawl_tracker or CrawlTracker()
         self._source_outcome_store = source_outcome_store or SourceOutcomeStore()
         self._crawlers: dict[str, BaseCrawler] = {}
         self._strategy_factory = strategy_factory or SourceStrategyFactory.create_default_factory()
         self._tag_vocabulary = tag_vocabulary
-        self._last_crawl_time: float = 0.0
-        self._crawl_lock = asyncio.Lock()
+        self._domain_limiter = DomainRateLimiter(min_interval=self.CRAWL_DELAY)
 
     async def _throttled_fetch_detail(
         self, item: ContentItem, crawler: BaseCrawler, source_type: str, site_name: str,
     ) -> ContentItem | None:
-        """带请求间隔的详情页抓取。确保请求之间至少间隔 CRAWL_DELAY 秒。"""
-        async with self._crawl_lock:
-            now = asyncio.get_event_loop().time()
-            elapsed = now - self._last_crawl_time
-            if elapsed < self.CRAWL_DELAY:
-                wait = self.CRAWL_DELAY - elapsed
-                logger.debug("[{type}] 节流等待 {wait:.1f}s: {url}", type=source_type, wait=wait, url=item.url)
-                await asyncio.sleep(wait)
-            self._last_crawl_time = asyncio.get_event_loop().time()
-
+        """带请求间隔的详情页抓取。按域名限流，不同域名可并行。"""
+        domain = self._detect_site(item.url)
+        await self._domain_limiter.acquire(domain)
         return await crawler.fetch_detail(item, site_name)
 
     def _get_crawler(self, source_type: str) -> BaseCrawler | None:
@@ -249,8 +230,116 @@ class ContentManager:
         """Return a stable key for per-source crawl outcome tracking."""
         return source.get("name") or source.get("url", "unknown")
 
+    async def _process_item(
+        self,
+        item: ContentItem,
+        crawler: BaseCrawler,
+        source_type: str,
+        extra_metadata: dict | None,
+        semaphore: asyncio.Semaphore,
+        done_count: list[int],
+        total: int,
+    ) -> ContentItem | None:
+        """处理单条内容：去重 + 抓详情。受信号量控制并发，带总超时兜底。"""
+        async with semaphore:
+            if self._tracker.is_crawled(source_type, item.url):
+                done_count[0] += 1
+                logger.info(f"[{source_type} {done_count[0]}/{total}] 已爬取, 跳过: {item.url}")
+                return None
+
+            done_count[0] += 1
+            my_index = done_count[0]
+            logger.info(f"[{source_type} {my_index}/{total}] 开始处理: {item.url}")
+
+            result = item
+            try:
+                result = await asyncio.wait_for(
+                    self._do_process_item(item, crawler, source_type, extra_metadata),
+                    timeout=self.ITEM_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"[{source_type} {my_index}/{total}] 处理超时 ({self.ITEM_TIMEOUT}s): {item.url}")
+            finally:
+                logger.info(f"[{source_type} {my_index}/{total}] 完成: {item.title[:30]}")
+            return result
+
+    async def _do_process_item(
+        self,
+        item: ContentItem,
+        crawler: BaseCrawler,
+        source_type: str,
+        extra_metadata: dict | None,
+    ) -> ContentItem:
+        """单条内容的核心处理逻辑（仅 fetch_detail，LLM 摘要延迟到批量阶段）。"""
+        try:
+            detail = await self._throttled_fetch_detail(item, crawler, source_type, self._detect_site(item.url))
+            if detail is not None:
+                if source_type == "rss" and isinstance(detail, RSSItem):
+                    item = detail
+                elif source_type != "rss":
+                    item = detail
+        except Exception as e:
+            logger.error(f"[{source_type}] 详情页抓取失败 {item.url}: {e}")
+            return item
+
+        if extra_metadata:
+            item.metadata.update(extra_metadata)
+        return item
+
+    async def _fetch_items_from_source(
+        self,
+        source: dict,
+        crawler: BaseCrawler,
+        source_type: str,
+    ) -> list[ContentItem]:
+        """Fetch raw items, deduplicate, and fetch detail pages for a single source."""
+        source_key = self._source_key(source)
+
+        if source_type == "rss":
+            raw_items = await crawler.fetch_feed(source)
+            extra = {"feed_url": source["url"], "source_key": source_key}
+        elif source_type in ("web", "javascript"):
+            user_selectors = normalize_selectors(source.get("selectors"))
+            if isinstance(crawler, DynamicWebCrawler):
+                raw_items = await crawler.fetch(source, user_selectors=user_selectors)
+            else:
+                raw_items = await crawler.fetch_page(
+                    source["url"],
+                    user_selectors=user_selectors,
+                    source_key=source_key,
+                    source_type=source_type,
+                )
+            extra = {"source_key": source_key}
+        else:
+            raw_items = await crawler.fetch(source, user_selectors=normalize_selectors(source.get("selectors")))
+            extra = None
+
+        total = len(raw_items)
+        logger.info(
+            f"[{source_type}] 获取到 {total} 条原始条目，开始并发处理 "
+            f"(concurrent={self.MAX_CONCURRENT}, delay={self.CRAWL_DELAY}s)"
+        )
+
+        semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
+        done_count = [0]
+        tasks = [
+            self._process_item(item, crawler, source_type, extra, semaphore, done_count, total)
+            for item in raw_items
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        processed = []
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.error(f"[{source_type}] 条目处理异常 {raw_items[i].url}: {r}")
+            elif r is not None:
+                processed.append(r)
+
+        logger.info(f"[{source_type}] 处理完成: {len(processed)}/{total} 条有效内容")
+        return processed
+
     async def _summarize_content(self, title: str, content: str) -> tuple[str, list[str]]:
-        """用 LLM 从 readability 提取的 content 生成 summary 和 tags"""
+        """用 LLM 从 content 生成 summary 和 tags（单条 fallback）。"""
         import json
 
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -285,178 +374,110 @@ class ContentManager:
                 tags = [t for t in raw_tags if valid is None or t in valid] or ["其他"]
                 return summary, tags
             except (json.JSONDecodeError, KeyError, ValueError) as e:
-                logger.warning("[summarize_content] attempt={attempt}/{max} 解析失败: {error}", attempt=attempt, max=max_retries, error=e)
+                logger.warning(
+                    "[summarize_content] attempt={attempt}/{max} 解析失败: {error}",
+                    attempt=attempt, max=max_retries, error=e,
+                )
                 if attempt < max_retries:
                     logger.info("[summarize_content] 重试 LLM 调用...")
 
         logger.error("[summarize_content] {max} 次尝试均失败, 使用原始文本", max=max_retries)
         return last_text[:200], ["其他"]
 
-    async def _process_item(
-        self,
-        item: ContentItem,
-        crawler: BaseCrawler,
-        source_type: str,
-        extra_metadata: dict | None,
-        semaphore: asyncio.Semaphore,
-        done_count: list[int],
-        total: int,
-    ) -> ContentItem | None:
-        """处理单条内容：去重、抓详情、LLM 摘要。受信号量控制并发，带总超时兜底。"""
-        async with semaphore:
-            if self._tracker.is_crawled(source_type, item.url):
-                done_count[0] += 1
-                logger.info(f"[{source_type} {done_count[0]}/{total}] 已爬取, 跳过: {item.url}")
-                return None
+    async def _batch_summarize_items(self, items: list[ContentItem]) -> list[ContentItem]:
+        """Batch LLM summarize items. Falls back to per-item on batch failure."""
+        import json
 
-            done_count[0] += 1
-            my_index = done_count[0]
-            logger.info(f"[{source_type} {my_index}/{total}] 开始处理: {item.url}")
+        from langchain_core.messages import HumanMessage, SystemMessage
 
-            result = item
-            try:
-                result = await asyncio.wait_for(
-                    self._do_process_item(item, crawler, source_type, extra_metadata),
-                    timeout=self.ITEM_TIMEOUT,
-                )
-            except asyncio.TimeoutError:
-                logger.error(f"[{source_type} {my_index}/{total}] 处理超时 ({self.ITEM_TIMEOUT}s): {item.url}")
-            finally:
-                logger.info(f"[{source_type} {my_index}/{total}] 完成: {item.title[:30]}")
-            return result
+        from comp_synth.config import settings
+        from comp_synth.llm_provider.registry import llm_registry
+        from comp_synth.prompt import build_batch_summary_prompt
 
-    async def _do_process_item(
-        self,
-        item: ContentItem,
-        crawler: BaseCrawler,
-        source_type: str,
-        extra_metadata: dict | None,
-    ) -> ContentItem:
-        """单条内容的核心处理逻辑（fetch_detail + summarize）。"""
-        try:
-            detail = await self._throttled_fetch_detail(item, crawler, source_type, self._detect_site(item.url))
-            if detail is not None:
-                if source_type == "rss" and isinstance(detail, RSSItem):
-                    item = detail
-                elif source_type != "rss":
-                    item = detail
-        except Exception as e:
-            logger.error(f"[{source_type}] 详情页抓取失败 {item.url}: {e}")
-            return item
+        items_with_content = [(i, item) for i, item in enumerate(items) if item.content]
+        if not items_with_content:
+            return items
 
-        if item.content:
-            try:
-                summary, tags = await self._summarize_content(item.title, item.content)
-                if summary:
-                    if source_type == "rss":
-                        item = RSSItem(
-                            url=item.url,
-                            title=item.title,
-                            summary=summary,
-                            content=item.content,
-                            tags=tags,
-                            published_at=item.published_at,
-                            collected_at=item.collected_at,
-                            metadata=item.metadata,
-                        )
-                    else:
-                        item = WebPageItem(
-                            url=item.url,
-                            title=item.title,
-                            summary=summary,
-                            content=item.content,
-                            tags=tags,
-                            collected_at=item.collected_at,
-                            metadata=item.metadata,
-                        )
-            except Exception as e:
-                logger.warning(f"[{source_type}] LLM 总结失败 {item.url}: {e}")
+        batch_size = settings.llm_batch_size
+        llm = llm_registry.get(settings.model)
 
-        if extra_metadata:
-            item.metadata.update(extra_metadata)
-        return item
+        for batch_start in range(0, len(items_with_content), batch_size):
+            batch = items_with_content[batch_start:batch_start + batch_size]
+            articles = [{"title": item.title, "content": item.content[:3000]} for _, item in batch]
+            prompt_text = build_batch_summary_prompt(articles, tags=self._tag_vocabulary)
 
-    async def _fetch_rss_source(
-        self,
-        source: dict,
-        crawler: RSSCrawler,
-    ) -> list[ContentItem]:
-        """Fetch items from an RSS source with dedup, detail-fetch, LLM summarization, and persistence."""
-        feed_url = source["url"]
-        raw_items = await crawler.fetch_feed(source)
-        total = len(raw_items)
-        logger.info(f"[RSS] 获取到 {total} 条原始条目，开始并发处理 (concurrent={self.MAX_CONCURRENT}, delay={self.CRAWL_DELAY}s)")
+            max_retries = 3
+            success = False
+            for attempt in range(1, max_retries + 1):
+                try:
+                    response = await llm.ainvoke([
+                        SystemMessage(content=prompt_text),
+                        HumanMessage(content=f"请分析以上 {len(articles)} 篇文章。"),
+                    ])
+                    text = coerce_text_content(response.content).strip()
+                    json_str = extract_json(text)
+                    if not json_str:
+                        raise ValueError("未找到 JSON")
 
-        semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
-        done_count = [0]
-        source_key = self._source_key(source)
-        tasks = [
-            self._process_item(item, crawler, "rss", {"feed_url": feed_url, "source_key": source_key}, semaphore, done_count, total)
-            for item in raw_items
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+                    results = json.loads(json_str)
+                    if not isinstance(results, list) or len(results) != len(batch):
+                        raise ValueError(f"期望 {len(batch)} 条结果，得到 {len(results) if isinstance(results, list) else '非数组'}")
 
-        processed = []
-        for i, r in enumerate(results):
-            if isinstance(r, Exception):
-                logger.error(f"[RSS] 条目处理异常 {raw_items[i].url}: {r}")
-            elif r is not None:
-                processed.append(r)
+                    valid_tags = set(self._tag_vocabulary) if self._tag_vocabulary else None
+                    for (orig_idx, item), parsed in zip(batch, results):
+                        summary = parsed.get("summary", "").strip()
+                        raw_tags = parsed.get("tags", [])
+                        tags = [t for t in raw_tags if valid_tags is None or t in valid_tags] or ["其他"]
+                        items[orig_idx] = self._apply_summary(item, summary, tags)
 
-        if processed:
-            self._tracker.save_articles(processed)
-        logger.info(f"[RSS] 处理完成: {len(processed)}/{total} 条有效内容")
-        return processed
+                    success = True
+                    break
+                except (json.JSONDecodeError, KeyError, ValueError) as e:
+                    logger.warning(
+                        "[batch_summarize] batch={start}-{end} attempt={attempt}/{max}: {error}",
+                        start=batch_start, end=batch_start + len(batch),
+                        attempt=attempt, max=max_retries, error=e,
+                    )
 
-    async def _fetch_web_source(
-        self,
-        source: dict,
-        crawler: AdaptiveWebCrawler,
-    ) -> list[ContentItem]:
-        """Fetch items from a web source with dedup, detail-fetch, LLM summarization, and persistence."""
-        url = source["url"]
-        user_selectors = normalize_selectors(source.get("selectors"))
+            if not success:
+                logger.warning("[batch_summarize] 批量摘要失败，回退到逐条处理")
+                for orig_idx, item in batch:
+                    try:
+                        summary, tags = await self._summarize_content(item.title, item.content)
+                        items[orig_idx] = self._apply_summary(item, summary, tags)
+                    except Exception as e:
+                        logger.warning(f"[batch_summarize] 逐条 fallback 也失败 {item.url}: {e}")
 
-        if isinstance(crawler, DynamicWebCrawler):
-            raw_items = await crawler.fetch(source, user_selectors=user_selectors)
-        else:
-            raw_items = await crawler.fetch_page(
-                url,
-                user_selectors=user_selectors,
-                source_key=self._source_key(source),
-                source_type="web",
+        return items
+
+    def _apply_summary(self, item: ContentItem, summary: str, tags: list[str]) -> ContentItem:
+        """Return a new ContentItem with summary and tags applied."""
+        if isinstance(item, RSSItem):
+            return RSSItem(
+                url=item.url,
+                title=item.title,
+                summary=summary,
+                content=item.content,
+                tags=tags,
+                published_at=item.published_at,
+                collected_at=item.collected_at,
+                metadata=item.metadata,
             )
-        total = len(raw_items)
-        logger.info(f"[Web] 获取到 {total} 条原始条目，开始并发处理 (concurrent={self.MAX_CONCURRENT}, delay={self.CRAWL_DELAY}s)")
-
-        source_key = self._source_key(source)
-        semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
-        done_count = [0]
-        tasks = [
-            self._process_item(item, crawler, "web", {"source_key": source_key}, semaphore, done_count, total)
-            for item in raw_items
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        processed = []
-        for i, r in enumerate(results):
-            if isinstance(r, Exception):
-                logger.error(f"[Web] 条目处理异常 {raw_items[i].url}: {r}")
-            elif r is not None:
-                processed.append(r)
-
-        if processed:
-            self._tracker.save_articles(processed)
-        logger.info(f"[Web] 处理完成: {len(processed)}/{total} 条有效内容")
-        return processed
+        return WebPageItem(
+            url=item.url,
+            title=item.title,
+            summary=summary,
+            content=item.content,
+            tags=tags,
+            collected_at=item.collected_at,
+            metadata=item.metadata,
+        )
 
     async def _fetch_single_source(
         self,
         source: dict,
     ) -> tuple[str, list[ContentItem] | None, str | None]:
-        """
-        Fetch from a single source. Returns (source_name, items or None, error or None).
-        """
+        """Fetch from a single source. Returns (source_name, items or None, error or None)."""
         source_type = source["type"]
         source_name = source.get("name", source.get("url", "unknown"))
 
@@ -464,34 +485,15 @@ class ContentManager:
         if not crawler:
             return (source_name, None, f"未知的订阅源类型: {source_type}")
 
-        logger.info("[ContentManager] 开始抓取 {name} (type={type}, url={url})", name=source_name, type=source_type, url=source.get("url", ""))
+        logger.info(
+            "[ContentManager] 开始抓取 {name} (type={type}, url={url})",
+            name=source_name, type=source_type, url=source.get("url", ""),
+        )
 
         try:
-            if source_type == "rss":
-                items = await self._fetch_rss_source(source, crawler)
-            elif source_type == "web":
-                items = await self._fetch_web_source(source, crawler)
-            elif source_type == "javascript":
-                user_selectors = normalize_selectors(source.get("selectors"))
-                raw_items = await crawler.fetch(source, user_selectors=user_selectors)
-                total = len(raw_items)
-                semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
-                done_count = [0]
-                results = await asyncio.gather(*[
-                    self._process_item(item, crawler, "javascript", None, semaphore, done_count, total)
-                    for item in raw_items
-                ], return_exceptions=True)
-                items = [item for item in results if not isinstance(item, Exception) and item is not None]
-                if items:
-                    self._tracker.save_articles(items)
-            else:
-                items = await crawler.fetch(source, user_selectors=normalize_selectors(source.get("selectors")))
-
-            logger.info(
-                f"[ContentManager] 从 {source_name} 获取到 {len(items)} 条内容"
-            )
+            items = await self._fetch_items_from_source(source, crawler, source_type)
+            logger.info(f"[ContentManager] 从 {source_name} 获取到 {len(items)} 条内容")
             return (source_name, items, None)
-
         except Exception as e:
             error_msg = f"爬取失败: {e}"
             logger.exception(f"ContentManager: {error_msg}")
@@ -502,7 +504,8 @@ class ContentManager:
         sources: list[dict],
     ) -> FetchResult:
         """
-        Fetch content from all sources concurrently.
+        Fetch content from all sources with bounded concurrency,
+        then batch-summarize all collected items, then persist.
 
         Args:
             sources: List of source configs from subscriptions.yaml
@@ -513,11 +516,19 @@ class ContentManager:
         if not sources:
             return FetchResult()
 
-        # Run all sources concurrently
-        tasks = [self._fetch_single_source(source) for source in sources]
+        from comp_synth.config import settings
+
+        source_semaphore = asyncio.Semaphore(settings.max_concurrent_sources)
+
+        async def _bounded_fetch(source):
+            async with source_semaphore:
+                return await self._fetch_single_source(source)
+
+        # Run sources with bounded concurrency
+        tasks = [_bounded_fetch(source) for source in sources]
         results = await asyncio.gather(*tasks)
 
-        # Aggregate results
+        # Aggregate results — items have detail content but no summary yet
         result = FetchResult()
         for source_name, items, error in results:
             if error:
@@ -530,6 +541,13 @@ class ContentManager:
         for source, (source_name, items, error) in zip(sources, results, strict=False):
             count = 0 if error or items is None else len(items)
             self._source_outcome_store.record_source_outcome(source, count, error)
+
+        # Batch LLM summarize all collected items
+        if result.items:
+            logger.info(f"[ContentManager] 开始批量摘要: {len(result.items)} 条内容")
+            result.items = await self._batch_summarize_items(result.items)
+            self._tracker.save_articles(result.items)
+            logger.info(f"[ContentManager] 批量摘要并持久化完成: {len(result.items)} 条")
 
         return result
 

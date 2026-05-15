@@ -2,12 +2,9 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import sessionmaker
-
 from comp_synth.config import settings
 from comp_synth.schema.content_item import ContentItem
-from comp_synth.store.migrations import bootstrap_database
-from comp_synth.store.models import resolve_db_path
+from comp_synth.store.database import get_engine
 from comp_synth.store.repositories.article_repository import ArticleRepository
 
 
@@ -15,20 +12,7 @@ class CrawlTracker:
     """Crawl state tracking and deduplication using SQLite + SQLAlchemy."""
 
     def __init__(self):
-        self._db_path = resolve_db_path(settings.crawl_db_path, "crawl_state.db")
-        # Ensure data directory exists
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._engine = None
-        self._session_factory = None
-        self._init_db()
-
-    def _init_db(self) -> None:
-        """Initialize database connection and create tables."""
-        from sqlalchemy import create_engine
-
-        self._engine = create_engine(f"sqlite:///{self._db_path}", echo=False)
-        bootstrap_database(self._engine)
-        self._session_factory = sessionmaker(bind=self._engine)
+        self._engine, self._session_factory = get_engine(settings.crawl_db_path, "crawl_state.db")
 
     def _with_session(self, fn):
         """Execute a function within a session context."""
