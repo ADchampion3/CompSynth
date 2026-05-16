@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
 from pydantic import BaseModel
 
-from comp_synth.llm_provider.registry import llm_registry
+from comp_synth.llm_provider import registry as _llm_registry
 from comp_synth.prompt import DOM_PROMPTS
 from comp_synth.utils.date_parser import parse_published_at
 
@@ -41,14 +41,9 @@ class ContainerFragments(BaseModel):
 class DOMExtractor:
     """使用 LLM 从 HTML DOM 中提取结构化内容"""
 
-    def __init__(self):
-        self._llm = None
-
     @property
     def llm(self):
-        if self._llm is None:
-            self._llm = llm_registry.get()
-        return self._llm
+        return _llm_registry.llm_registry.get()
 
     def _preprocess_html(self, html: str) -> str:
         """Stage 0: 清洗 HTML，移除噪声元素和冗余属性"""

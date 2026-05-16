@@ -25,29 +25,7 @@ async def lifespan(app: FastAPI):
     from comp_synth.services.source_service import SourceService
 
     settings = get_settings()
-    session_factory = _init_db(settings)
-
-    # Apply DB-backed settings overrides before consumers read
-    try:
-        from comp_synth.config import apply_db_overrides
-        from comp_synth.store.repositories.settings_repository import SettingsRepository
-
-        with session_factory() as session:
-            repo = SettingsRepository(session)
-            overrides = repo.load()
-            if overrides:
-                apply_db_overrides(overrides)
-
-        # Rebuild LLM registry with overridden settings
-        import comp_synth.llm_provider.registry as _reg
-        from comp_synth.config import settings as _s
-        from comp_synth.llm_provider.registry import LLMRegistry
-
-        _reg.llm_registry = LLMRegistry(_s.model_dump())
-    except Exception as exc:
-        from loguru import logger
-
-        logger.warning("Settings DB override failed: {error}", error=exc)
+    _init_db(settings)
 
     # 启动时以 YAML 为准，全量同步到 DB
     try:

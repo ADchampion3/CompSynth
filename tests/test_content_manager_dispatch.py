@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from comp_synth.crawlers.dynamic_web_crawler import DynamicWebCrawler
 from comp_synth.orchestration.content_manager import ContentManager, normalize_selectors
 from comp_synth.schema.content_item import WebPageItem
 
@@ -20,7 +21,7 @@ def test_normalize_selectors_rejects_invalid_shape():
 def test_javascript_source_uses_dynamic_fetch(monkeypatch):
     calls = []
 
-    class FakeDynamicCrawler:
+    class FakeDynamicCrawler(DynamicWebCrawler):
         async def fetch(self, source, user_selectors=None):
             calls.append((source, user_selectors))
             return [WebPageItem(url="https://example.test/a", title="A")]
@@ -36,8 +37,8 @@ def test_javascript_source_uses_dynamic_fetch(monkeypatch):
             pass
 
     manager = ContentManager(crawl_tracker=FakeTracker())
-    monkeypatch.setattr(manager, "_summarize_content", lambda title, content: ("", []))
     monkeypatch.setattr(manager, "_get_crawler", lambda source_type: FakeDynamicCrawler())
+
     async def fake_process_item(item, crawler, source_type, extra_metadata, semaphore, done_count, total):
         return item
 

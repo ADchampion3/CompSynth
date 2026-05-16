@@ -3,12 +3,9 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from comp_synth.config import settings
 from comp_synth.schema.report import ReportMetadata
-from comp_synth.store.migrations import bootstrap_database
+from comp_synth.store.database import get_engine
 from comp_synth.store.models import resolve_db_path
 
 _REPORT_ID_PATTERN = re.compile(r"^digest_(\d{8})$")
@@ -33,10 +30,9 @@ class ReportService:
     def __init__(self, output_dir: Path | None = None, report_db_path: Path | None = None) -> None:
         self._output_dir = Path(output_dir or settings.output_dir)
         self._report_db_path = resolve_db_path(Path(report_db_path), "crawl_state.db") if report_db_path else None
-        self._engine = None
         self._session_factory = None
         if self._report_db_path:
-            self._init_db()
+            _, self._session_factory = get_engine(self._report_db_path, "crawl_state.db")
 
     def list_reports(self) -> list[ReportSummary]:
         if self._session_factory is not None and self._has_report_metadata():
@@ -134,10 +130,7 @@ class ReportService:
         return match
 
     def _init_db(self) -> None:
-        self._report_db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._engine = create_engine(f"sqlite:///{self._report_db_path}", echo=False)
-        bootstrap_database(self._engine)
-        self._session_factory = sessionmaker(bind=self._engine)
+        _, self._session_factory = get_engine(self._report_db_path, "crawl_state.db")
 
     def _require_db(self) -> None:
         if self._session_factory is None:

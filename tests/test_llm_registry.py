@@ -19,7 +19,7 @@ def test_dom_extractor_does_not_load_llm_until_llm_method(monkeypatch):
     def fail_get(*args, **kwargs):
         raise AssertionError("LLM should not be loaded for selector extraction")
 
-    monkeypatch.setattr("comp_synth.crawlers.extractors.llm_registry.get", fail_get)
+    monkeypatch.setattr("comp_synth.crawlers.extractors._llm_registry.llm_registry.get", fail_get)
 
     extractor = DOMExtractor()
     html = "<article><a href='/a'><h2>Title</h2></a><p>Summary</p></article>"

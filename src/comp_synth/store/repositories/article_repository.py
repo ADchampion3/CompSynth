@@ -197,6 +197,15 @@ class ArticleRepository:
         )
         return list(self._session.execute(stmt).scalars().all())
 
+    def get_today_items_all_sources(self) -> list[ArticleModel]:
+        """Get all items crawled today across all sources (single query)."""
+        today = datetime.now(timezone.utc).date()
+        stmt = select(ArticleModel).where(
+            ArticleModel.crawled_at
+            >= datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc),
+        )
+        return list(self._session.execute(stmt).scalars().all())
+
     def get_expired_article_ids(self, ttl_days: int = 30) -> list[str]:
         """Get article IDs older than TTL days."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=ttl_days)
@@ -255,6 +264,11 @@ class ArticleRepository:
             stmt = stmt.where(ArticleModel.extra_metadata["feed_url"].as_string() == feed_url)
         rows = list(self._session.execute(stmt).scalars().all())
         return rows[0] if rows and rows[0] is not None else None
+
+    def get_all_article_ids(self) -> list[str]:
+        """Get all article IDs for in-memory dedup cache."""
+        stmt = select(ArticleModel.article_id)
+        return list(self._session.execute(stmt).scalars().all())
 
     def get_distinct_sources(self) -> list[str]:
         """Get distinct source keys that have at least one article."""

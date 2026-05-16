@@ -1,19 +1,44 @@
 import json
+import uuid
 from datetime import datetime
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
+from pydantic import BaseModel
 
 from comp_synth.config import settings
-from comp_synth.llm_provider.registry import llm_registry
+from comp_synth.llm_provider import registry as _llm_registry
 from comp_synth.orchestration.content_manager import ContentManager
 from comp_synth.orchestration.state import PipelineState
-from comp_synth.prompt import CONTENT_ANALYST_PROMPT, REPORT_GENERATOR_PROMPT
+from comp_synth.prompt import (
+    CONTENT_ANALYST_PROMPT,
+    REPORT_GENERATOR_PROMPT,
+    TOPIC_MERGE_PROMPT,
+)
 from comp_synth.report_format_checker import ReportFormatChecker
 from comp_synth.schema.content_item import ContentItem
 from comp_synth.services.source_service import SourceService
-from comp_synth.utils.json_extraction import coerce_text_content, extract_json
+from comp_synth.utils.json_extraction import coerce_text_content
+
+
+class ArticleInTopic(BaseModel):
+    """A single article within a topic group."""
+    title: str
+    summary: str
+    url: str
+
+
+class TopicGroup(BaseModel):
+    """A topic group with summary and related articles."""
+    topic: str
+    summary: str
+    articles: list[ArticleInTopic]
+
+
+class TopicAnalysis(BaseModel):
+    """LLM structured output for topic analysis."""
+    topics: list[TopicGroup]
 
 
 async def fetch_sources(state: PipelineState) -> dict:
@@ -34,7 +59,8 @@ async def fetch_sources(state: PipelineState) -> dict:
 
     # Create ContentManager and store in state for later use by deduplicate
     manager = ContentManager()
-    result = await manager.fetch_all(sources)
+    run_id = f"pipeline-{uuid.uuid4().hex[:12]}"
+    result = await manager.fetch_all(sources, run_id=run_id)
 
     logger.info(
         f"内容采集完成: {len(result.items)} 条内容, "
@@ -46,6 +72,7 @@ async def fetch_sources(state: PipelineState) -> dict:
         "raw_items": result.items,
         "source_counts": result.source_counts,
         "content_manager": manager,
+        "crawl_run_id": run_id,
         "errors": result.errors,
     }
 
@@ -65,80 +92,135 @@ async def deduplicate(state: PipelineState) -> dict:
     return {"new_items": new_items}
 
 
+async def _summarize_chunk(
+    llm,
+    chunk: list[ContentItem],
+    item_map: dict[str, ContentItem],
+) -> list[dict] | None:
+    """Summarize a single chunk of articles via LLM, returning topic groups or None."""
+    articles_text = "\n".join(
+        f"---\n文章 {i}:\n标题: {item.title}\nURL: {item.url}\n"
+        f"标签: {', '.join(item.tags)}\n摘要: {item.summary}\n---"
+        for i, item in enumerate(chunk, 1)
+    )
+
+    structured_llm = llm.with_structured_output(TopicAnalysis)
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            result: TopicAnalysis = await structured_llm.ainvoke([
+                SystemMessage(content=CONTENT_ANALYST_PROMPT),
+                HumanMessage(content=f"以下是 {len(chunk)} 篇文章，请分析：\n{articles_text}"),
+            ])
+            return [
+                {
+                    "topic": t.topic,
+                    "summary": t.summary,
+                    "articles": [
+                        {
+                            "title": a.title,
+                            "summary": a.summary,
+                            "url": a.url,
+                            "tags": item_map.get(a.url, ContentItem(source="", url="")).tags,
+                        }
+                        for a in t.articles
+                    ],
+                }
+                for t in result.topics
+            ]
+        except Exception as e:
+            logger.warning(
+                "[summarize_chunk] attempt={attempt}/{max}: {error}",
+                attempt=attempt, max=max_retries, error=e,
+            )
+    return None
+
+
+async def _merge_topics(llm, all_topics: list[dict]) -> list[dict]:
+    """Merge overlapping topics across chunks via a single LLM call."""
+    topics_json = json.dumps(all_topics, ensure_ascii=False, indent=2)
+    try:
+        structured_llm = llm.with_structured_output(TopicAnalysis)
+        result: TopicAnalysis = await structured_llm.ainvoke([
+            SystemMessage(content=TOPIC_MERGE_PROMPT),
+            HumanMessage(content=f"请合并以下主题分组：\n{topics_json}"),
+        ])
+        return [
+            {
+                "topic": t.topic,
+                "summary": t.summary,
+                "articles": [a.model_dump() for a in t.articles],
+                "related_historical": [],
+            }
+            for t in result.topics
+        ]
+    except Exception as e:
+        logger.warning("[merge_topics] 合并失败，直接拼接: {error}", error=e)
+        for t in all_topics:
+            t["related_historical"] = []
+        return all_topics
+
+
 async def summarize(state: PipelineState) -> dict:
-    """使用 LLM 按主题分组并总结内容"""
+    """使用 LLM 按主题分组并总结内容（支持分片处理）"""
     new_items = state.get("new_items", [])
     if not new_items:
         return {"topic_groups": [], "report": ""}
 
-    llm = llm_registry.get(settings.model)
-
-    # 构建文章列表
-    articles_text = ""
-    for i, item in enumerate(new_items, 1):
-        tags_str = ", ".join(item.tags)
-        articles_text += f"""
----
-文章 {i}:
-标题: {item.title}
-URL: {item.url}
-标签: {tags_str}
-摘要: {item.summary}
----
-"""
-    # 构建文章索引映射 (URL -> ContentItem)
+    llm = _llm_registry.llm_registry.get(settings.model)
     item_map = {item.url: item for item in new_items}
+    chunk_size = settings.summarize_chunk_size
 
-    max_retries = 3
-    for attempt in range(1, max_retries + 1):
-        logger.info(f"正在使用 LLM 总结 {len(new_items)} 篇文章... (attempt={attempt}/{max_retries})")
-        try:
-            response = await llm.ainvoke([
-                SystemMessage(content=CONTENT_ANALYST_PROMPT),
-                HumanMessage(content=f"以下是 {len(new_items)} 篇文章，请分析：\n{articles_text}"),
-            ])
-            content = coerce_text_content(response.content).strip()
-            logger.debug("[summarize] LLM 原始输出 (前500字): {preview}", preview=content[:500])
-
-            json_str = extract_json(content)
-            if not json_str:
-                raise ValueError("未找到 JSON 内容")
-            result = json.loads(json_str)
-            topic_groups = [
-                {
-                    "topic": t["topic"],
-                    "summary": t["summary"],
-                    "articles": [
-                        {
-                            "title": a["title"],
-                            "summary": a["summary"],
-                            "url": a["url"],
-                            "tags": item_map.get(a["url"], ContentItem(source="", url="")).tags,
-                        }
-                        for a in t["articles"]
-                    ],
-                    "related_historical": [],
-                }
-                for t in result["topics"]
-            ]
+    # Single-chunk fast path
+    if len(new_items) <= chunk_size:
+        topic_groups = await _summarize_chunk(llm, new_items, item_map)
+        if topic_groups:
+            for t in topic_groups:
+                t["related_historical"] = []
             logger.info(f"LLM 分组完成: {len(topic_groups)} 个主题")
             return {"topic_groups": topic_groups}
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            logger.warning("[summarize] attempt={attempt}/{max} 解析失败: {error}", attempt=attempt, max=max_retries, error=e)
-            if attempt < max_retries:
-                logger.info("[summarize] 重试 LLM 调用...")
+        # Fallback
+        return {"topic_groups": _fallback_groups(new_items)}
 
-    logger.error("[summarize] {max} 次尝试均失败，使用 fallback 分组", max=max_retries)
-    topic_groups = [{
+    # Multi-chunk path
+    all_chunk_topics: list[dict] = []
+    for start in range(0, len(new_items), chunk_size):
+        chunk = new_items[start:start + chunk_size]
+        logger.info(
+            "[summarize] 处理分片 {start}-{end}/{total}",
+            start=start, end=start + len(chunk), total=len(new_items),
+        )
+        chunk_topics = await _summarize_chunk(llm, chunk, item_map)
+        if chunk_topics:
+            all_chunk_topics.extend(chunk_topics)
+        else:
+            logger.warning("[summarize] 分片 {start}-{end} 处理失败，使用 fallback", start=start, end=start + len(chunk))
+            all_chunk_topics.extend(_fallback_groups(chunk))
+
+    # Merge cross-chunk topics
+    if len(all_chunk_topics) > 1:
+        logger.info("[summarize] 合并 {count} 个主题分组...", count=len(all_chunk_topics))
+        topic_groups = await _merge_topics(llm, all_chunk_topics)
+    else:
+        topic_groups = all_chunk_topics
+        for t in topic_groups:
+            t.setdefault("related_historical", [])
+
+    logger.info(f"LLM 分组完成: {len(topic_groups)} 个主题")
+    return {"topic_groups": topic_groups}
+
+
+def _fallback_groups(items: list[ContentItem]) -> list[dict]:
+    """Build a single fallback topic group from items."""
+    return [{
         "topic": "综合",
         "summary": "最近采集的文章汇总。",
         "articles": [
             {"title": item.title, "summary": item.summary or "", "url": item.url, "tags": item.tags}
-            for item in new_items
+            for item in items
         ],
         "related_historical": [],
     }]
-    return {"topic_groups": topic_groups}
 
 
 async def publish(state: PipelineState) -> dict:
@@ -147,7 +229,7 @@ async def publish(state: PipelineState) -> dict:
     if not topic_groups:
         return {"report": "", "publish_results": {"status": "skipped", "reason": "无内容"}}
 
-    llm = llm_registry.get(settings.model)
+    llm = _llm_registry.llm_registry.get(settings.model)
 
     # 构建主题分组文本
     date_str = datetime.now().strftime("%Y-%m-%d")

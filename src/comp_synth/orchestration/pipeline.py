@@ -51,6 +51,17 @@ async def run_pipeline(initial_state: PipelineState | None = None) -> PipelineSt
     state.update(await fetch_sources(state))
     state.update(await deduplicate(state))
 
+    # Finish crawl run checkpoint
+    run_id = state.get("crawl_run_id")
+    if run_id:
+        content_manager = state.get("content_manager")
+        if content_manager:
+            content_manager.finish_crawl_run(
+                run_id,
+                status="completed",
+                new_items=len(state.get("new_items", [])),
+            )
+
     route = route_after_deduplicate(state)
     if route == "end":
         return state

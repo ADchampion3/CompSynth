@@ -1,68 +1,65 @@
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
+from comp_synth.config import settings
 from comp_synth.services.settings_service import MASKED_SENTINEL, SettingsService
-from comp_synth.store.migrations import bootstrap_database
-from comp_synth.store.repositories.settings_repository import SettingsRepository
 
 
-def _make_service():
-    engine = create_engine("sqlite:///:memory:")
-    bootstrap_database(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    repo = SettingsRepository(session)
-    return SettingsService(repo), session
+@pytest.fixture(autouse=True)
+def _restore_settings():
+    """Snapshot and restore the global settings singleton around each test."""
+    snapshot = settings.model_dump()
+    yield
+    for key, value in snapshot.items():
+        if hasattr(settings, key):
+            setattr(settings, key, value)
 
 
 def test_get_effective_returns_defaults():
-    svc, session = _make_service()
-    settings = svc.get_effective_settings()
-    # Values come from Settings() which reads .env; just verify keys exist
-    assert "model" in settings
-    assert "request_timeout" in settings
+    svc = SettingsService()
+    result = svc.get_effective_settings()
+    assert "model" in result
+    assert "request_timeout" in result
 
 
 def test_sensitive_fields_masked():
-    svc, session = _make_service()
+    svc = SettingsService()
     svc.update_settings({"openai_api_key": "sk-real-key"})
-    session.commit()
-    settings = svc.get_effective_settings()
-    assert settings["openai_api_key"] == MASKED_SENTINEL
+    result = svc.get_effective_settings()
+    assert result["openai_api_key"] == MASKED_SENTINEL
 
 
 def test_update_persists_and_masks():
-    svc, session = _make_service()
-    result = svc.update_settings({"model": "gpt-4", "openai_api_key": "sk-test"})
-    session.commit()
+    svc = SettingsService()
+    import unittest.mock
+    with unittest.mock.patch("comp_synth.services.settings_service._sync_to_env"):
+        result = svc.update_settings({"model": "gpt-4", "openai_api_key": "sk-test"})
     assert result["model"] == "gpt-4"
     assert result["openai_api_key"] == MASKED_SENTINEL
 
 
 def test_reject_masked_sentinel():
-    svc, session = _make_service()
+    svc = SettingsService()
     with pytest.raises(Exception) as exc_info:
         svc.update_settings({"openai_api_key": MASKED_SENTINEL})
     assert exc_info.value.status_code == 422
 
 
 def test_reject_unknown_field():
-    svc, session = _make_service()
+    svc = SettingsService()
     with pytest.raises(Exception) as exc_info:
         svc.update_settings({"nonexistent_field": "value"})
     assert exc_info.value.status_code == 422
 
 
 def test_reject_path_traversal():
-    svc, session = _make_service()
+    svc = SettingsService()
     with pytest.raises(Exception) as exc_info:
         svc.update_settings({"data_dir": "/tmp/../etc"})
     assert exc_info.value.status_code == 422
 
 
 def test_schema_returns_field_metadata():
-    svc, _ = _make_service()
+    svc = SettingsService()
     schema = svc.get_schema()
     assert "fields" in schema
     assert "model" in schema["fields"]
@@ -70,32 +67,36 @@ def test_schema_returns_field_metadata():
     assert schema["fields"]["model"]["group"] == "llm"
 
 
-def test_reset_group_removes_overrides():
-    svc, session = _make_service()
-    svc.update_settings({"model": "gpt-4", "request_timeout": "60"})
-    session.commit()
-    before = svc.get_effective_settings()
-    assert before["model"] == "gpt-4"
-    result = svc.reset_group("llm")
-    session.commit()
-    # After reset, model should revert to default (not "gpt-4")
+def test_reset_group_reverts_to_defaults():
+    import unittest.mock
+    svc = SettingsService()
+    with unittest.mock.patch("comp_synth.services.settings_service._sync_to_env"):
+        svc.update_settings({"model": "gpt-4", "request_timeout": "60"})
+    assert settings.model == "gpt-4"
+
+    with unittest.mock.patch("comp_synth.services.settings_service._sync_to_env"):
+        result = svc.reset_group("llm")
+
+    # model should revert to Settings default, not stay "gpt-4"
     assert result["model"] != "gpt-4"
+    # request_timeout was in "crawler" group, should still be "60"
     assert result["request_timeout"] == "60"
 
 
 def test_update_validates_against_model():
-    svc, session = _make_service()
+    svc = SettingsService()
     with pytest.raises(Exception) as exc_info:
         svc.update_settings({"request_timeout": "not_a_number"})
     assert exc_info.value.status_code == 422
 
 
 def test_absence_based_patch():
-    svc, session = _make_service()
-    svc.update_settings({"model": "gpt-4"})
-    session.commit()
-    result = svc.update_settings({"request_timeout": "60"})
-    session.commit()
+    """Updating one field must not clobber another that was set earlier."""
+    import unittest.mock
+    svc = SettingsService()
+    with unittest.mock.patch("comp_synth.services.settings_service._sync_to_env"):
+        svc.update_settings({"model": "gpt-4"})
+        result = svc.update_settings({"request_timeout": "60"})
     assert result["model"] == "gpt-4"
     assert result["request_timeout"] == "60"
 
@@ -133,7 +134,6 @@ def test_sync_to_env_preserves_unmanaged_keys(tmp_path):
 
     from comp_synth.services.settings_service import _sync_to_env
 
-    # Only "model" in overrides; "request_timeout" is left as-is
     _sync_to_env({"model": "gpt-4o"}, env_path=env)
 
     text = env.read_text(encoding="utf-8")
@@ -147,7 +147,6 @@ def test_sync_to_env_removes_explicit_keys(tmp_path):
 
     from comp_synth.services.settings_service import _sync_to_env
 
-    # Reset "model" → pass it in remove_keys
     _sync_to_env({}, remove_keys={"model"}, env_path=env)
 
     text = env.read_text(encoding="utf-8")

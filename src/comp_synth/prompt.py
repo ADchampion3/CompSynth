@@ -147,8 +147,31 @@ def build_summary_prompt(tags: list[str] | None = None) -> str:
 1. 用2-3句话总结核心内容（保留关键信息，总字数控制在200字以内）
 2. 从以下标签中选择1-3个最合适的分类标签：{tag_list}
 
-请直接返回 JSON 格式，不要 markdown 代码块：
+请返回 JSON 格式：
 {{"summary": "总结内容...", "tags": ["标签1", "标签2"]}}"""
+
+
+def build_batch_summary_prompt(articles: list[dict], tags: list[str] | None = None) -> str:
+    """Build a batch summary prompt for multiple articles in one LLM call."""
+    vocabulary = _sanitize_tags(tags) if tags else DEFAULT_TAG_VOCABULARY
+    tag_list = "、".join(vocabulary)
+    entries = []
+    for i, article in enumerate(articles, 1):
+        title = article.get("title", "")
+        content = article.get("content", "")[:3000]
+        entries.append(f"[{i}] 标题：{title}\n内容：{content}")
+    articles_text = "\n\n".join(entries)
+    return f"""请分析以下 {len(articles)} 篇文章，为每篇完成两个任务：
+1. 用2-3句话总结核心内容（保留关键信息，总字数控制在200字以内）
+2. 从以下标签中选择1-3个最合适的分类标签：{tag_list}
+
+{articles_text}
+
+请返回 JSON 数组，共 {len(articles)} 条，与输入文章一一对应：
+[
+  {{"summary": "总结内容...", "tags": ["标签1", "标签2"]}},
+  ...
+]"""
 
 
 # Backward-compatible constant for callers that haven't migrated yet
@@ -181,6 +204,26 @@ CONTENT_ANALYST_PROMPT = """你是一个内容分析师。你将收到一组文�
 - 使用原始文章的summary, 可以总结精简到200字左右
 - 总结要简洁且有信息量。
 - 仅回复 JSON，不要 markdown 代码块。"""
+
+TOPIC_MERGE_PROMPT = """你是内容分析师。以下是对文章分批分析后得到的多个主题分组结果。
+请合并相似或重叠的主题，保留所有文章，为合并后的主题重新写概要。
+仅回复 JSON，格式与输入相同：
+{
+  "topics": [
+    {
+      "topic": "主题名称",
+      "summary": "主题整体总结...",
+      "articles": [
+        {"title": "...", "summary": "...", "url": "..."}
+      ]
+    }
+  ]
+}
+
+规则：
+- 合并语义相同或高度相关的主题（如"AI技术"和"人工智能"应合并）。
+- 保留所有文章，不丢失任何一篇。
+- 每篇文章只出现在一个主题中。"""
 
 # Report Generator Prompt (used in nodes.py publish)
 REPORT_GENERATOR_PROMPT = """

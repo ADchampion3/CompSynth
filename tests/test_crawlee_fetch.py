@@ -9,8 +9,8 @@ import pytest
 from comp_synth.crawlers.crawlee_fetch import (
     CrawleeFetchService,
     _clear_global_storage_cache,
-    _DomainRateLimiter,
 )
+from comp_synth.utils.rate_limiter import DomainRateLimiter as _DomainRateLimiter
 
 
 @pytest.fixture(autouse=True)

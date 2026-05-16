@@ -2,11 +2,8 @@
 
 from urllib.parse import urlparse
 
-from sqlalchemy.orm import sessionmaker
-
 from comp_synth.config import settings
-from comp_synth.store.migrations import bootstrap_database
-from comp_synth.store.models import resolve_db_path
+from comp_synth.store.database import get_engine
 from comp_synth.store.repositories.source_crawl_outcome_repository import (
     SourceCrawlOutcomeRepository,
 )
@@ -16,18 +13,7 @@ class SourceOutcomeStore:
     """SQLite-backed source crawl outcome store."""
 
     def __init__(self):
-        self._db_path = resolve_db_path(settings.crawl_db_path, "crawl_state.db")
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._engine = None
-        self._session_factory = None
-        self._init_db()
-
-    def _init_db(self) -> None:
-        from sqlalchemy import create_engine
-
-        self._engine = create_engine(f"sqlite:///{self._db_path}", echo=False)
-        bootstrap_database(self._engine)
-        self._session_factory = sessionmaker(bind=self._engine)
+        self._engine, self._session_factory = get_engine(settings.crawl_db_path, "crawl_state.db")
 
     def _with_session(self, fn):
         with self._session_factory() as session:
