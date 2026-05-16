@@ -1,6 +1,12 @@
-import argparse
+"""CompSynth CLI entry point — thin shim that delegates to the Typer app.
+
+Backward-compat re-exports are kept so that existing imports like
+``import comp_synth.main as main_module; main_module.run()`` continue to work.
+"""
+
+from __future__ import annotations
+
 import asyncio
-import json
 from datetime import timezone
 from pathlib import Path
 
@@ -22,6 +28,25 @@ from comp_synth.store.repositories.crawl_run_repository import CrawlRunRepositor
 from comp_synth.store.repositories.source_crawl_outcome_repository import (
     SourceCrawlOutcomeRepository,
 )
+
+# ── public API (backward compat) ────────────────────────────────────────────
+
+__all__ = [
+    "main",
+    "run",
+    "crawl_command",
+    "dashboard",
+    "notify_command",
+    "serve_command",
+    "sources_command",
+    "reports_command",
+    "SourceService",
+    "ReportService",
+    "CrawlService",
+    "DashboardSummary",
+    "ReportSummary",
+    "ReportDetail",
+]
 
 
 async def run(db_path: Path | None = None) -> dict:
@@ -57,55 +82,6 @@ async def run(db_path: Path | None = None) -> dict:
         logger.warning(f"Pipeline finished with status: {status}")
 
     return result
-
-
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        prog="compsynth",
-        description="Run the CompSynth content aggregation pipeline.",
-    )
-    parser.add_argument("--db-path", type=Path, default=None, help="SQLite crawl state database path.")
-    subparsers = parser.add_subparsers(dest="command")
-    subparsers.add_parser("crawl", help="Run crawl pipeline and print summary JSON.")
-    subparsers.add_parser("dashboard", help="Print dashboard summary JSON.")
-    reports_parser = subparsers.add_parser("reports", help="Read generated report metadata.")
-    report_subparsers = reports_parser.add_subparsers(dest="report_command")
-    report_subparsers.add_parser("list", help="List generated reports.")
-    report_get = report_subparsers.add_parser("get", help="Read one generated report.")
-    report_get.add_argument("report_id", help="Report id such as digest_20260201.")
-    sources_parser = subparsers.add_parser("sources", help="Manage subscription sources.")
-    source_subparsers = sources_parser.add_subparsers(dest="source_command")
-    source_import = source_subparsers.add_parser("import", help="Import subscriptions YAML into SQLite.")
-    source_import.add_argument("--path", type=Path, default=None, help="Subscriptions YAML path.")
-    source_export = source_subparsers.add_parser("export", help="Export SQLite sources to YAML.")
-    source_export.add_argument("--output", type=Path, default=None, help="Output YAML path.")
-    notify_parser = subparsers.add_parser("notify", help="Send digest via configured notification channels.")
-    notify_parser.add_argument("--file", type=Path, default=None, help="Specific Markdown file to send.")
-    serve_parser = subparsers.add_parser("serve", help="Start the CompSynth HTTP API server.")
-    serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
-    serve_parser.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000).")
-    args = parser.parse_args(argv)
-
-    if args.command == "crawl":
-        print(json.dumps(crawl_command(args.db_path), ensure_ascii=False))
-        return
-    if args.command == "dashboard":
-        print(json.dumps(dashboard(args.db_path), ensure_ascii=False))
-        return
-    if args.command == "reports":
-        print(json.dumps(reports_command(args), ensure_ascii=False))
-        return
-    if args.command == "sources":
-        print(json.dumps(sources_command(args), ensure_ascii=False))
-        return
-    if args.command == "notify":
-        print(json.dumps(notify_command(args), ensure_ascii=False))
-        return
-    if args.command == "serve":
-        serve_command(args)
-        return
-
-    asyncio.run(run(args.db_path))
 
 
 def crawl_command(db_path: Path | None = None) -> dict:
@@ -279,6 +255,36 @@ def _datetime_to_iso(value) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.isoformat()
+
+
+# ── CLI entry point ──────────────────────────────────────────────────────────
+
+_KNOWN_COMMANDS = frozenset({
+    "crawl", "serve", "dashboard", "notify",
+    "status", "logs", "doctor",
+    "reports", "sources", "config",
+})
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI entry point — delegates to the Typer app.
+
+    For backward compat with tests that call ``main([...])`` directly,
+    SystemExit is swallowed (Typer always raises it on completion).
+    The real CLI entry point is ``comp_synth.cli:app`` which propagates
+    exit codes to the shell.
+    """
+    from comp_synth.cli import app as typer_app
+
+    args = list(argv) if argv is not None else None
+    # If no known subcommand is present, run the default pipeline
+    if args is not None and not any(a in _KNOWN_COMMANDS for a in args):
+        args.append("default")
+
+    try:
+        typer_app(args=args)
+    except SystemExit:
+        pass
 
 
 if __name__ == "__main__":

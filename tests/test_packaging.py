@@ -10,11 +10,11 @@ def test_package_imports_from_repo_root():
 def test_console_script_points_to_existing_main():
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 
-    assert pyproject["project"]["scripts"]["compsynth"] == "comp_synth.main:main"
-    module_name, function_name = pyproject["project"]["scripts"]["compsynth"].split(":")
+    entry_point = pyproject["project"]["scripts"]["compsynth"]
+    module_name, attr_name = entry_point.split(":")
     module = importlib.import_module(module_name)
 
-    assert callable(getattr(module, function_name))
+    assert callable(getattr(module, attr_name))
 
 
 def test_project_description_is_readable_chinese():

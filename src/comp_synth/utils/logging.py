@@ -58,6 +58,9 @@ logger.add(
     encoding="utf-8",
     backtrace=False,
     diagnose=False,
+    rotation="00:00",
+    retention=config.settings.log_retain_days,
+    compression="gz",
 )
 
 logger.add(
@@ -67,4 +70,7 @@ logger.add(
     encoding="utf-8",
     backtrace=True,
     diagnose=True,
+    rotation="00:00",
+    retention="90 days",
+    compression="gz",
 )
