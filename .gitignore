@@ -31,3 +31,6 @@ subscriptions.yaml
 
 data/
 .gstack/
+
+# Crawlee runtime storage
+storage/

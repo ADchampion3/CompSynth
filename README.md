@@ -46,6 +46,37 @@
 ```bash
 git clone https://github.com/ADchampion3/CompSynth.git
 cd CompSynth
+```
+
+### 使用安装脚本（推荐）
+
+安装脚本会自动检测 `uv`，未找到时交互式引导安装或手动指定路径，并完成依赖安装、配置文件初始化和前端（可选）。
+
+**Linux / macOS：**
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+**Windows (PowerShell)：**
+
+```powershell
+.\install.ps1
+```
+
+### 让 Coding Agent 安装
+
+如果你正在使用 Claude Code、Cursor 等 Coding Agent，直接将 [INSTALL.md](INSTALL.md) 交给 Agent 执行即可。该文档包含逐步安装指令和每步验证条件。
+
+```
+# 在 Agent 中输入：
+请按照 INSTALL.md 的步骤安装项目
+```
+
+### 手动安装
+
+```bash
 uv sync
 ```
 
@@ -437,7 +468,7 @@ cp .env.example .env
 
 - [x] **预处理提高 Selectors 有效性** — 3 层 HTML 预处理管线（压缩 → 深度清理 → 属性剥离）
 - [x] **推送功能** — 邮件推送（SMTP 自动检测），`compsynth notify` 独立发送
-- [ ] **定时任务** — 支持配置自动定期抓取和生成日报
+- [x] **定时任务** — 支持配置自动定期抓取和生成日报
 - [ ] **增强信息源与反爬通用性** — 支持更多网站类型，自动处理常见反爬机制（UA、代理池、验证码等）
 - [ ] **封装为SKILL** — 增强CLI通用性，封装为SKILL供Agent使用
 
