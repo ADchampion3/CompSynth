@@ -96,7 +96,28 @@ def main(
     else:
         level = "INFO"
     logger.remove()
-    logger.add(sys.stderr, level=level, format=CONSOLE_FMT, colorize=sys.stderr.isatty(), diagnose=True, backtrace=True)
+    logger.add(sys.stderr, level=level, format=CONSOLE_FMT, colorize=sys.stderr.isatty(), diagnose=False, backtrace=True)
+
+
+# ── pipeline runner (shared) ─────────────────────────────────────────────────
+
+def _run_pipeline(ctx: typer.Context, error_label: str) -> None:
+    from comp_synth.main import _crawl_result_to_dict
+    from comp_synth.main import run as async_run
+
+    db_path = _get_db_path(ctx)
+    try:
+        result = asyncio.run(async_run(db_path))
+    except Exception:
+        logger.exception(error_label)
+        raise typer.Exit(code=EXIT_FATAL)
+
+    exit_code = _compute_exit_code(result)
+    payload = _crawl_result_to_dict(result)
+
+    if not _get_cron_mode(ctx):
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+    raise typer.Exit(code=exit_code)
 
 
 # ── default pipeline (no subcommand) ─────────────────────────────────────────
@@ -104,21 +125,7 @@ def main(
 @app.command("default", hidden=True)
 def run_default(ctx: typer.Context) -> None:
     """Run the full pipeline: crawl, dedup, summarize, publish, notify."""
-    from comp_synth.main import run as async_run
-
-    db_path = _get_db_path(ctx)
-    try:
-        result = asyncio.run(async_run(db_path))
-    except Exception:
-        logger.exception("Fatal pipeline error")
-        raise typer.Exit(code=EXIT_FATAL)
-
-    exit_code = _compute_exit_code(result)
-    payload = _crawl_result_to_dict(result)
-
-    if not _get_cron_mode(ctx):
-        typer.echo(json.dumps(payload, ensure_ascii=False))
-    raise typer.Exit(code=exit_code)
+    _run_pipeline(ctx, "Fatal pipeline error")
 
 
 # ── crawl ────────────────────────────────────────────────────────────────────
@@ -126,21 +133,7 @@ def run_default(ctx: typer.Context) -> None:
 @app.command()
 def crawl(ctx: typer.Context) -> None:
     """Run crawl pipeline and print summary JSON."""
-    from comp_synth.main import run as async_run
-
-    db_path = _get_db_path(ctx)
-    try:
-        result = asyncio.run(async_run(db_path))
-    except Exception:
-        logger.exception("Fatal crawl error")
-        raise typer.Exit(code=EXIT_FATAL)
-
-    exit_code = _compute_exit_code(result)
-    payload = _crawl_result_to_dict(result)
-
-    if not _get_cron_mode(ctx):
-        typer.echo(json.dumps(payload, ensure_ascii=False))
-    raise typer.Exit(code=exit_code)
+    _run_pipeline(ctx, "Fatal crawl error")
 
 
 # ── serve ────────────────────────────────────────────────────────────────────
@@ -359,7 +352,7 @@ def logs_cmd(
     log_path = log_files[0].resolve()
 
     # Path traversal protection
-    if not str(log_path).startswith(str(log_dir)):
+    if not log_path.is_relative_to(log_dir.resolve()):
         typer.echo("Invalid log path.", err=True)
         raise typer.Exit(code=EXIT_FATAL)
 
@@ -409,6 +402,111 @@ def config_show() -> None:
     typer.echo("\n".join(lines))
 
 
+# ── doctor checks ────────────────────────────────────────────────────────────
+
+def _check_python() -> dict:
+    import platform
+    py_ver = platform.python_version()
+    ok = tuple(int(x) for x in py_ver.split(".")[:2]) >= (3, 11)
+    return {"name": "Python 3.11+", "ok": ok, "detail": f"Python {py_ver}", "required": True}
+
+
+def _check_env_file() -> dict:
+    env_path = Path(".env")
+    ok = env_path.exists()
+    return {"name": ".env file", "ok": ok, "detail": "found" if ok else "not found", "required": True}
+
+
+def _check_api_key() -> dict:
+    from comp_synth.config import settings
+    provider = settings.llm_provider
+    if provider == "openai":
+        key_value, key_name = settings.openai_api_key, "COMPSYNTH_OPENAI_API_KEY"
+    elif provider == "anthropic":
+        key_value, key_name = settings.anthropic_api_key, "COMPSYNTH_ANTHROPIC_API_KEY"
+    else:
+        key_value, key_name = "", f"COMPSYNTH_{provider.upper()}_API_KEY"
+    ok = bool(key_value)
+    return {"name": key_name, "ok": ok, "detail": "set" if ok else "not set", "required": True}
+
+
+def _check_subscriptions() -> dict:
+    from comp_synth.config import settings
+    sub_path = settings.subscriptions_path
+    ok = sub_path.exists()
+    detail = str(sub_path)
+    if ok:
+        try:
+            import yaml
+            with open(sub_path, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            source_count = len(data.get("sources", [])) if data else 0
+            detail = f"found ({source_count} sources)"
+        except Exception:
+            ok = False
+            detail = f"parse error in {sub_path}"
+    return {"name": "subscriptions.yaml", "ok": ok, "detail": detail, "required": True}
+
+
+def _check_sqlite_db() -> dict:
+    from comp_synth.config import settings
+    db_path = settings.crawl_db_path
+    ok = db_path.parent.exists()
+    if ok and db_path.exists():
+        try:
+            db_path.stat()
+            detail = f"accessible ({db_path})"
+        except OSError as exc:
+            ok = False
+            detail = f"error: {exc}"
+    elif ok:
+        detail = f"parent dir exists, DB will be created ({db_path})"
+    else:
+        detail = f"parent dir not found ({db_path})"
+    return {"name": "SQLite DB", "ok": ok, "detail": detail, "required": True}
+
+
+def _check_log_dir() -> dict:
+    from comp_synth.config import settings
+    log_dir = settings.log_dir
+    ok = log_dir.exists()
+    if ok:
+        try:
+            test_file = log_dir / ".doctor_write_test"
+            test_file.write_text("ok", encoding="utf-8")
+            test_file.unlink()
+            detail = f"writable ({log_dir})"
+        except OSError:
+            ok = False
+            detail = f"not writable ({log_dir})"
+    else:
+        detail = f"not found ({log_dir})"
+    return {"name": "Log directory", "ok": ok, "detail": detail, "required": True}
+
+
+def _check_smtp() -> dict:
+    from comp_synth.config import settings
+    channels = settings.get_channels()
+    if "email" in channels:
+        smtp_fields = [settings.smtp_host, settings.smtp_user, settings.smtp_to]
+        ok = all(smtp_fields)
+        return {"name": "SMTP", "ok": ok, "detail": "configured" if ok else "incomplete SMTP settings", "required": False}
+    return {"name": "SMTP", "ok": True, "detail": "not needed (no email channel)", "required": False}
+
+
+def _check_optional_keys() -> list[dict]:
+    from comp_synth.config import settings
+    provider = settings.llm_provider
+    result = []
+    if provider != "anthropic":
+        ok = bool(settings.anthropic_api_key)
+        result.append({"name": "COMPSYNTH_ANTHROPIC_API_KEY", "ok": ok, "detail": "set" if ok else "not set (optional)", "required": False})
+    if provider != "openai":
+        ok = bool(settings.openai_api_key)
+        result.append({"name": "COMPSYNTH_OPENAI_API_KEY", "ok": ok, "detail": "set" if ok else "not set (optional)", "required": False})
+    return result
+
+
 # ── doctor ───────────────────────────────────────────────────────────────────
 
 @app.command()
@@ -417,118 +515,14 @@ def doctor(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output."),
 ) -> None:
     """Validate the setup and print a checklist."""
-    import platform
-
-    from comp_synth.config import settings
-
     checks: list[dict] = []
-    has_failure = False
-
-    # 1. Python version
-    py_ver = platform.python_version()
-    py_ok = tuple(int(x) for x in py_ver.split(".")[:2]) >= (3, 11)
-    checks.append({"name": "Python 3.11+", "ok": py_ok, "detail": f"Python {py_ver}", "required": True})
-    if not py_ok:
-        has_failure = True
-
-    # 2. .env file
-    env_path = Path(".env")
-    env_ok = env_path.exists()
-    checks.append({"name": ".env file", "ok": env_ok, "detail": "found" if env_ok else "not found", "required": True})
-    if not env_ok:
-        has_failure = True
-
-    # 3. Required API key (depends on provider)
-    provider = settings.llm_provider
-    if provider == "openai":
-        key_value = settings.openai_api_key
-        key_name = "COMPSYNTH_OPENAI_API_KEY"
-    elif provider == "anthropic":
-        key_value = settings.anthropic_api_key
-        key_name = "COMPSYNTH_ANTHROPIC_API_KEY"
-    else:
-        key_value = ""
-        key_name = f"COMPSYNTH_{provider.upper()}_API_KEY"
-    key_ok = bool(key_value)
-    checks.append({"name": key_name, "ok": key_ok, "detail": "set" if key_ok else "not set", "required": True})
-    if not key_ok:
-        has_failure = True
-
-    # 4. subscriptions.yaml
-    sub_path = settings.subscriptions_path
-    sub_ok = sub_path.exists()
-    sub_detail = str(sub_path)
-    if sub_ok:
-        try:
-            import yaml
-
-            with open(sub_path, encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            source_count = len(data.get("sources", [])) if data else 0
-            sub_detail = f"found ({source_count} sources)"
-        except Exception:
-            sub_ok = False
-            sub_detail = f"parse error in {sub_path}"
-    checks.append({"name": "subscriptions.yaml", "ok": sub_ok, "detail": sub_detail, "required": True})
-    if not sub_ok:
-        has_failure = True
-
-    # 5. SQLite crawl_state.db
-    db_path = settings.crawl_db_path
-    db_ok = db_path.parent.exists()
-    if db_ok and db_path.exists():
-        try:
-            db_path.stat()
-            db_detail = f"accessible ({db_path})"
-        except OSError as exc:
-            db_ok = False
-            db_detail = f"error: {exc}"
-    elif db_ok:
-        db_detail = f"parent dir exists, DB will be created ({db_path})"
-    else:
-        db_detail = f"parent dir not found ({db_path})"
-    checks.append({"name": "SQLite DB", "ok": db_ok, "detail": db_detail, "required": True})
-    if not db_ok:
-        has_failure = True
-
-    # 6. Log directory writable
-    log_dir = settings.log_dir
-    log_ok = log_dir.exists()
-    if log_ok:
-        try:
-            test_file = log_dir / ".doctor_write_test"
-            test_file.write_text("ok", encoding="utf-8")
-            test_file.unlink()
-            log_detail = f"writable ({log_dir})"
-        except OSError:
-            log_ok = False
-            log_detail = f"not writable ({log_dir})"
-    else:
-        log_detail = f"not found ({log_dir})"
-    checks.append({"name": "Log directory", "ok": log_ok, "detail": log_detail, "required": True})
-    if not log_ok:
-        has_failure = True
-
-    # 7. SMTP (if email channel configured) — optional
-    channels = settings.get_channels()
-    if "email" in channels:
-        smtp_fields = [settings.smtp_host, settings.smtp_user, settings.smtp_to]
-        smtp_ok = all(smtp_fields)
-        smtp_detail = "configured" if smtp_ok else "incomplete SMTP settings"
-        checks.append({"name": "SMTP", "ok": smtp_ok, "detail": smtp_detail, "required": False})
-    else:
-        checks.append({"name": "SMTP", "ok": True, "detail": "not needed (no email channel)", "required": False})
-
-    # 8. Optional API keys
+    for check_fn in [_check_python, _check_env_file, _check_api_key, _check_subscriptions, _check_sqlite_db, _check_log_dir, _check_smtp]:
+        checks.append(check_fn())
     if not required_only:
-        if provider != "anthropic":
-            anthropic_ok = bool(settings.anthropic_api_key)
-            checks.append({"name": "COMPSYNTH_ANTHROPIC_API_KEY", "ok": anthropic_ok, "detail": "set" if anthropic_ok else "not set (optional)", "required": False})
-        if provider != "openai":
-            openai_ok = bool(settings.openai_api_key)
-            checks.append({"name": "COMPSYNTH_OPENAI_API_KEY", "ok": openai_ok, "detail": "set" if openai_ok else "not set (optional)", "required": False})
+        checks.extend(_check_optional_keys())
 
-    # Output
+    has_failure = not all(c["ok"] for c in checks if c["required"])
+
     if json_output:
         typer.echo(json.dumps({"checks": checks, "ok": not has_failure}, ensure_ascii=False))
         raise typer.Exit(code=EXIT_PARTIAL if has_failure else EXIT_SUCCESS)
@@ -551,15 +545,3 @@ class _Namespace:
 
     def __init__(self, **kwargs: object) -> None:
         self.__dict__.update(kwargs)
-
-
-def _crawl_result_to_dict(result: dict) -> dict:
-    publish_results = result.get("publish_results", {}) or {}
-    items = result.get("new_items") or result.get("fetched_items") or result.get("raw_items") or []
-    return {
-        "crawl_run_id": result.get("crawl_run_id"),
-        "status": publish_results.get("status", "unknown"),
-        "new_items": len(items),
-        "errors": [str(error) for error in result.get("errors", [])],
-        "publish_path": publish_results.get("path"),
-    }
