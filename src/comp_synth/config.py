@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
 
     # LLM
+    llm_provider: str = "openai"
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     anthropic_api_key: str = ""

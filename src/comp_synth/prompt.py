@@ -147,7 +147,7 @@ def build_summary_prompt(tags: list[str] | None = None) -> str:
 1. 用2-3句话总结核心内容（保留关键信息，总字数控制在200字以内）
 2. 从以下标签中选择1-3个最合适的分类标签：{tag_list}
 
-请直接返回 JSON 格式，不要 markdown 代码块：
+请返回 JSON 格式：
 {{"summary": "总结内容...", "tags": ["标签1", "标签2"]}}"""
 
 
@@ -167,13 +167,11 @@ def build_batch_summary_prompt(articles: list[dict], tags: list[str] | None = No
 
 {articles_text}
 
-请直接返回 JSON 数组，不要 markdown 代码块：
+请返回 JSON 数组，共 {len(articles)} 条，与输入文章一一对应：
 [
   {{"summary": "总结内容...", "tags": ["标签1", "标签2"]}},
   ...
-]
-
-数组长度必须恰好为 {len(articles)}，与输入文章一一对应。"""
+]"""
 
 
 # Backward-compatible constant for callers that haven't migrated yet

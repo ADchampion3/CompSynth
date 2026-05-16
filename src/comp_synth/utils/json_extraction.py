@@ -2,11 +2,12 @@
 
 import re
 
-_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
+_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
+_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def extract_json(text: str) -> str | None:
-    """Extract a JSON object string from LLM output.
+    """Extract a JSON string from LLM output (array or object).
 
     Handles markdown code-block wrapping and plain-text mixed output.
     """
@@ -15,9 +16,12 @@ def extract_json(text: str) -> str | None:
             candidate = part.strip()
             if candidate.startswith("json"):
                 candidate = candidate[4:].strip()
-            if candidate.startswith("{"):
+            if candidate.startswith(("{", "[")):
                 return candidate
-    m = _JSON_RE.search(text)
+    m = _ARRAY_RE.search(text)
+    if m:
+        return m.group(0)
+    m = _OBJECT_RE.search(text)
     return m.group(0) if m else None
 
 

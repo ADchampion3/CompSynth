@@ -5,9 +5,10 @@ from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
+from pydantic import BaseModel
 
 from comp_synth.config import settings
-from comp_synth.llm_provider.registry import llm_registry
+from comp_synth.llm_provider import registry as _llm_registry
 from comp_synth.orchestration.content_manager import ContentManager
 from comp_synth.orchestration.state import PipelineState
 from comp_synth.prompt import (
@@ -18,7 +19,26 @@ from comp_synth.prompt import (
 from comp_synth.report_format_checker import ReportFormatChecker
 from comp_synth.schema.content_item import ContentItem
 from comp_synth.services.source_service import SourceService
-from comp_synth.utils.json_extraction import coerce_text_content, extract_json
+from comp_synth.utils.json_extraction import coerce_text_content
+
+
+class ArticleInTopic(BaseModel):
+    """A single article within a topic group."""
+    title: str
+    summary: str
+    url: str
+
+
+class TopicGroup(BaseModel):
+    """A topic group with summary and related articles."""
+    topic: str
+    summary: str
+    articles: list[ArticleInTopic]
+
+
+class TopicAnalysis(BaseModel):
+    """LLM structured output for topic analysis."""
+    topics: list[TopicGroup]
 
 
 async def fetch_sources(state: PipelineState) -> dict:
@@ -84,35 +104,31 @@ async def _summarize_chunk(
         for i, item in enumerate(chunk, 1)
     )
 
+    structured_llm = llm.with_structured_output(TopicAnalysis)
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            response = await llm.ainvoke([
+            result: TopicAnalysis = await structured_llm.ainvoke([
                 SystemMessage(content=CONTENT_ANALYST_PROMPT),
                 HumanMessage(content=f"以下是 {len(chunk)} 篇文章，请分析：\n{articles_text}"),
             ])
-            content = coerce_text_content(response.content).strip()
-            json_str = extract_json(content)
-            if not json_str:
-                raise ValueError("未找到 JSON 内容")
-            result = json.loads(json_str)
             return [
                 {
-                    "topic": t["topic"],
-                    "summary": t["summary"],
+                    "topic": t.topic,
+                    "summary": t.summary,
                     "articles": [
                         {
-                            "title": a["title"],
-                            "summary": a["summary"],
-                            "url": a["url"],
-                            "tags": item_map.get(a["url"], ContentItem(source="", url="")).tags,
+                            "title": a.title,
+                            "summary": a.summary,
+                            "url": a.url,
+                            "tags": item_map.get(a.url, ContentItem(source="", url="")).tags,
                         }
-                        for a in t["articles"]
+                        for a in t.articles
                     ],
                 }
-                for t in result["topics"]
+                for t in result.topics
             ]
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
+        except Exception as e:
             logger.warning(
                 "[summarize_chunk] attempt={attempt}/{max}: {error}",
                 attempt=attempt, max=max_retries, error=e,
@@ -124,27 +140,22 @@ async def _merge_topics(llm, all_topics: list[dict]) -> list[dict]:
     """Merge overlapping topics across chunks via a single LLM call."""
     topics_json = json.dumps(all_topics, ensure_ascii=False, indent=2)
     try:
-        response = await llm.ainvoke([
+        structured_llm = llm.with_structured_output(TopicAnalysis)
+        result: TopicAnalysis = await structured_llm.ainvoke([
             SystemMessage(content=TOPIC_MERGE_PROMPT),
             HumanMessage(content=f"请合并以下主题分组：\n{topics_json}"),
         ])
-        content = coerce_text_content(response.content).strip()
-        json_str = extract_json(content)
-        if not json_str:
-            raise ValueError("未找到 JSON")
-        result = json.loads(json_str)
         return [
             {
-                "topic": t["topic"],
-                "summary": t["summary"],
-                "articles": t["articles"],
+                "topic": t.topic,
+                "summary": t.summary,
+                "articles": [a.model_dump() for a in t.articles],
                 "related_historical": [],
             }
-            for t in result["topics"]
+            for t in result.topics
         ]
-    except (json.JSONDecodeError, KeyError, ValueError) as e:
+    except Exception as e:
         logger.warning("[merge_topics] 合并失败，直接拼接: {error}", error=e)
-        # Fallback: just concatenate all chunk topics
         for t in all_topics:
             t["related_historical"] = []
         return all_topics
@@ -156,7 +167,7 @@ async def summarize(state: PipelineState) -> dict:
     if not new_items:
         return {"topic_groups": [], "report": ""}
 
-    llm = llm_registry.get(settings.model)
+    llm = _llm_registry.llm_registry.get(settings.model)
     item_map = {item.url: item for item in new_items}
     chunk_size = settings.summarize_chunk_size
 
@@ -218,7 +229,7 @@ async def publish(state: PipelineState) -> dict:
     if not topic_groups:
         return {"report": "", "publish_results": {"status": "skipped", "reason": "无内容"}}
 
-    llm = llm_registry.get(settings.model)
+    llm = _llm_registry.llm_registry.get(settings.model)
 
     # 构建主题分组文本
     date_str = datetime.now().strftime("%Y-%m-%d")

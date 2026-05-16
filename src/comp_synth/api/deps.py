@@ -19,7 +19,6 @@ from comp_synth.store.repositories.article_state_repository import (
     ArticleStateRepository,
 )
 from comp_synth.store.repositories.crawl_run_repository import CrawlRunRepository
-from comp_synth.store.repositories.settings_repository import SettingsRepository
 from comp_synth.store.repositories.source_crawl_outcome_repository import (
     SourceCrawlOutcomeRepository,
 )
@@ -97,8 +96,8 @@ def get_dashboard_service(session: Session = Depends(get_session)) -> DashboardS
     )
 
 
-def get_settings_service(session: Session = Depends(get_session)) -> SettingsService:
-    return SettingsService(repository=SettingsRepository(session))
+def get_settings_service() -> SettingsService:
+    return SettingsService()
 
 
 _schema_store: SchemaStore | None = None

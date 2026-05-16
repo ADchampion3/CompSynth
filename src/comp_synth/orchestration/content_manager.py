@@ -7,6 +7,7 @@ from typing import Protocol
 from urllib.parse import urlparse
 
 from loguru import logger
+from pydantic import BaseModel
 
 from comp_synth.crawlers.adaptive_web_crawler import AdaptiveWebCrawler
 from comp_synth.crawlers.base import BaseCrawler
@@ -15,8 +16,18 @@ from comp_synth.crawlers.rss import RSSCrawler
 from comp_synth.schema.content_item import ContentItem, RSSItem, WebPageItem
 from comp_synth.store.crawl_tracker import CrawlTracker
 from comp_synth.store.source_outcome_store import SourceOutcomeStore
-from comp_synth.utils.json_extraction import coerce_text_content, extract_json
 from comp_synth.utils.rate_limiter import DomainRateLimiter
+
+
+class ArticleSummary(BaseModel):
+    """LLM structured output for a single article summary."""
+    summary: str
+    tags: list[str]
+
+
+class BatchArticleSummaries(BaseModel):
+    """LLM structured output for batch article summaries."""
+    items: list[ArticleSummary]
 
 # ============================================================================
 # Source Strategy Pattern - 消除硬编码的来源类型
@@ -347,42 +358,33 @@ class ContentManager:
 
     async def _summarize_content(self, title: str, content: str) -> tuple[str, list[str]]:
         """用 LLM 从 content 生成 summary 和 tags（单条 fallback）。"""
-        import json
-
         from langchain_core.messages import HumanMessage, SystemMessage
 
         from comp_synth.config import settings
-        from comp_synth.llm_provider.registry import llm_registry
+        from comp_synth.llm_provider import registry as _llm_registry
         from comp_synth.prompt import build_summary_prompt
 
         truncated = content[:3000] if len(content) > 3000 else content
-        llm = llm_registry.get(settings.model)
+        llm = _llm_registry.llm_registry.get(settings.model)
+        structured_llm = llm.with_structured_output(ArticleSummary)
         prompt_text = build_summary_prompt(tags=self._tag_vocabulary)
 
         max_retries = 3
         last_text = truncated[:200]
         for attempt in range(1, max_retries + 1):
             try:
-                response = await llm.ainvoke([
+                result: ArticleSummary = await structured_llm.ainvoke([
                     SystemMessage(content=prompt_text),
                     HumanMessage(content=f"标题：{title}\n\n内容：{truncated}"),
                 ])
-                text = coerce_text_content(response.content).strip()
-                last_text = text
-
-                json_str = extract_json(text)
-                if not json_str:
-                    raise ValueError("未找到 JSON")
-
-                result = json.loads(json_str)
-                summary = result.get("summary", "").strip()
-                raw_tags = result.get("tags", [])
+                summary = result.summary.strip()
+                raw_tags = result.tags
                 valid = set(self._tag_vocabulary) if self._tag_vocabulary else None
                 tags = [t for t in raw_tags if valid is None or t in valid] or ["其他"]
                 return summary, tags
-            except (json.JSONDecodeError, KeyError, ValueError) as e:
+            except Exception as e:
                 logger.warning(
-                    "[summarize_content] attempt={attempt}/{max} 解析失败: {error}",
+                    "[summarize_content] attempt={attempt}/{max} 失败: {error}",
                     attempt=attempt, max=max_retries, error=e,
                 )
                 if attempt < max_retries:
@@ -393,12 +395,10 @@ class ContentManager:
 
     async def _batch_summarize_items(self, items: list[ContentItem]) -> list[ContentItem]:
         """Batch LLM summarize items. Falls back to per-item on batch failure."""
-        import json
-
         from langchain_core.messages import HumanMessage, SystemMessage
 
         from comp_synth.config import settings
-        from comp_synth.llm_provider.registry import llm_registry
+        from comp_synth.llm_provider import registry as _llm_registry
         from comp_synth.prompt import build_batch_summary_prompt
 
         items_with_content = [(i, item) for i, item in enumerate(items) if item.content]
@@ -406,7 +406,8 @@ class ContentManager:
             return items
 
         batch_size = settings.llm_batch_size
-        llm = llm_registry.get(settings.model)
+        llm = _llm_registry.llm_registry.get(settings.model)
+        structured_llm = llm.with_structured_output(BatchArticleSummaries)
 
         for batch_start in range(0, len(items_with_content), batch_size):
             batch = items_with_content[batch_start:batch_start + batch_size]
@@ -417,29 +418,23 @@ class ContentManager:
             success = False
             for attempt in range(1, max_retries + 1):
                 try:
-                    response = await llm.ainvoke([
+                    result: BatchArticleSummaries = await structured_llm.ainvoke([
                         SystemMessage(content=prompt_text),
                         HumanMessage(content=f"请分析以上 {len(articles)} 篇文章。"),
                     ])
-                    text = coerce_text_content(response.content).strip()
-                    json_str = extract_json(text)
-                    if not json_str:
-                        raise ValueError("未找到 JSON")
-
-                    results = json.loads(json_str)
-                    if not isinstance(results, list) or len(results) != len(batch):
-                        raise ValueError(f"期望 {len(batch)} 条结果，得到 {len(results) if isinstance(results, list) else '非数组'}")
+                    summaries = result.items
+                    if len(summaries) != len(batch):
+                        raise ValueError(f"期望 {len(batch)} 条结果，得到 {len(summaries)}")
 
                     valid_tags = set(self._tag_vocabulary) if self._tag_vocabulary else None
-                    for (orig_idx, item), parsed in zip(batch, results):
-                        summary = parsed.get("summary", "").strip()
-                        raw_tags = parsed.get("tags", [])
-                        tags = [t for t in raw_tags if valid_tags is None or t in valid_tags] or ["其他"]
+                    for (orig_idx, item), parsed in zip(batch, summaries):
+                        summary = parsed.summary.strip()
+                        tags = [t for t in parsed.tags if valid_tags is None or t in valid_tags] or ["其他"]
                         items[orig_idx] = self._apply_summary(item, summary, tags)
 
                     success = True
                     break
-                except (json.JSONDecodeError, KeyError, ValueError) as e:
+                except Exception as e:
                     logger.warning(
                         "[batch_summarize] batch={start}-{end} attempt={attempt}/{max}: {error}",
                         start=batch_start, end=batch_start + len(batch),

@@ -21,27 +21,30 @@ class LLMRegistry:
         if not model_name:
             return
 
-        if config.get("openai_api_key") and config.get("openai_base_url"):
-            self._register(
-                model_name,
-                {
-                    "type": "openai",
-                    "api_key": config["openai_api_key"],
-                    "base_url": config["openai_base_url"],
-                    "model": model_name,
-                },
-            )
+        provider = config.get("llm_provider", "openai")
 
-        if config.get("anthropic_api_key"):
-            self._register(
-                model_name,
-                {
-                    "type": "anthropic",
-                    "api_key": config["anthropic_api_key"],
-                    "base_url": config.get("anthropic_base_url"),
-                    "model": model_name,
-                },
-            )
+        if provider == "openai":
+            if config.get("openai_api_key") and config.get("openai_base_url"):
+                self._register(
+                    model_name,
+                    {
+                        "type": "openai",
+                        "api_key": config["openai_api_key"],
+                        "base_url": config["openai_base_url"],
+                        "model": model_name,
+                    },
+                )
+        elif provider == "anthropic":
+            if config.get("anthropic_api_key"):
+                self._register(
+                    model_name,
+                    {
+                        "type": "anthropic",
+                        "api_key": config["anthropic_api_key"],
+                        "base_url": config.get("anthropic_base_url"),
+                        "model": model_name,
+                    },
+                )
 
     def _register(self, name: str, provider_config: dict[str, Any]) -> None:
         self._providers[name] = self._create_provider(provider_config)

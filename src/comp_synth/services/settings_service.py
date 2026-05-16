@@ -1,25 +1,34 @@
-"""Service layer for settings management."""
+"""Service layer for settings management.
+
+Reads from the in-memory settings singleton (loaded from .env on startup).
+Writes updates directly to .env and patches the singleton in place.
+Rebuilds LLM registry when LLM-related fields change.
+"""
 
 from pathlib import Path
 
-from comp_synth.config import Settings
-from comp_synth.store.repositories.settings_repository import SettingsRepository
+from comp_synth.config import Settings, settings
 
 MASKED_SENTINEL = "***configured***"
 
 SENSITIVE_FIELDS = {"openai_api_key", "anthropic_api_key"}
 
+LLM_FIELDS = {
+    "llm_provider", "openai_api_key", "openai_base_url",
+    "anthropic_api_key", "anthropic_base_url", "model",
+}
+
 PATH_FIELDS = {"log_dir", "data_dir", "crawl_db_path", "site_schema_db_path", "subscriptions_path", "output_dir"}
 
 
 def _sync_to_env(
-    overrides: dict[str, str],
+    updates: dict[str, str],
     remove_keys: set[str] | None = None,
     env_path: Path | None = None,
 ) -> Path:
-    """Write current DB overrides into the .env file.
+    """Write updated settings into the .env file.
 
-    - Keys in *overrides* are updated in-place or appended.
+    - Keys in *updates* are updated in-place or appended.
     - Keys in *remove_keys* (bare lowercase names) are removed from the file.
     - All other lines (comments, non-schema vars) are preserved untouched.
     """
@@ -37,16 +46,15 @@ def _sync_to_env(
                 key = stripped.split("=", 1)[0].strip()
                 bare_lower = key.removeprefix("COMPSYNTH_").lower()
                 if key.upper().startswith("COMPSYNTH_") and bare_lower in managed_lower:
-                    if bare_lower in overrides:
-                        lines.append(f"{key}={overrides[bare_lower]}")
+                    if bare_lower in updates:
+                        lines.append(f"{key}={updates[bare_lower]}")
                         written.add(bare_lower)
                         continue
                     if bare_lower in remove_lower:
-                        continue  # omit this line
+                        continue
             lines.append(line)
 
-    # Add overrides not yet in file (use uppercase convention)
-    for bare_key, value in overrides.items():
+    for bare_key, value in updates.items():
         if bare_key not in written:
             lines.append(f"COMPSYNTH_{bare_key.upper()}={value}")
 
@@ -55,6 +63,7 @@ def _sync_to_env(
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
     tmp.replace(path)
     return path
+
 
 SETTINGS_SCHEMA = {
     "llm_provider": {"type": "select", "group": "llm", "label": "Provider", "sensitive": False, "description": "LLM provider type", "default": "openai", "options": ["openai", "anthropic"]},
@@ -76,105 +85,94 @@ SETTINGS_SCHEMA = {
 
 
 class SettingsService:
-    def __init__(self, repository: SettingsRepository):
-        self._repo = repository
+    """Reads from in-memory settings; writes to .env and patches singleton."""
 
     def get_effective_settings(self) -> dict[str, str]:
-        """Merge DB overrides onto Settings defaults, masking sensitive fields."""
-        defaults = self._defaults_from_model()
-        overrides = self._repo.load()
-        if overrides:
-            merged = {**defaults, **overrides}
-        else:
-            merged = dict(defaults)
+        """Read current values from the in-memory settings singleton."""
+        result: dict[str, str] = {}
+        for key, field_def in SETTINGS_SCHEMA.items():
+            if key in Settings.model_fields:
+                result[key] = str(getattr(settings, key))
+            else:
+                result[key] = str(field_def.get("default", ""))
         for field in SENSITIVE_FIELDS:
-            if merged.get(field):
-                merged[field] = MASKED_SENTINEL
-        return merged
+            if result.get(field):
+                result[field] = MASKED_SENTINEL
+        return result
 
     def get_schema(self) -> dict:
-        """Return field metadata for UI rendering."""
         return {"fields": SETTINGS_SCHEMA}
 
     def update_settings(self, updates: dict[str, str]) -> dict:
-        """Validate updates, persist to DB, return masked effective settings.
+        """Validate, write to .env, patch in-memory settings, conditionally rebuild LLM."""
+        errors = self._validate_updates(updates)
+        if errors:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=422, detail=errors)
 
-        Rejects masked sentinel values with 422.
-        Validates via Pydantic model before persisting.
-        Only stores fields that are present in updates (absence = unchanged).
-        """
+        self._validate_against_model(updates)
+        _sync_to_env(updates)
+        _apply_runtime(updates)
+        return self.get_effective_settings()
+
+    def reset_group(self, group: str) -> dict:
+        """Reset a group to Settings defaults (remove from .env, re-read)."""
+        keys_in_group = [k for k, v in SETTINGS_SCHEMA.items() if v["group"] == group]
+        _sync_to_env({}, remove_keys=set(keys_in_group))
+        _apply_runtime_reset(set(keys_in_group))
+        return self.get_effective_settings()
+
+    def _validate_updates(self, updates: dict[str, str]) -> dict[str, str]:
         errors: dict[str, str] = {}
-
         for key, value in updates.items():
             if key not in SETTINGS_SCHEMA:
                 errors[key] = f"Unknown setting: {key}"
                 continue
-            if SENSITIVE_FIELDS.intersection({key}) and value == MASKED_SENTINEL:
+            if key in SENSITIVE_FIELDS and value == MASKED_SENTINEL:
                 errors[key] = "Cannot set field to masked value"
             if key in PATH_FIELDS:
                 normalized = value.replace("\\", "/")
                 if ".." in normalized.split("/"):
                     errors[key] = "Path must not contain '..' segments"
+        return errors
 
-        if errors:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=422, detail=errors)
-
-        current = self._repo.load() or {}
+    def _validate_against_model(self, updates: dict[str, str]) -> None:
+        """Build a full Settings snapshot (current + updates) and validate via Pydantic."""
+        snapshot = settings.model_dump()
         for key, value in updates.items():
-            current[key] = value
-
-        self._validate_against_model(current)
-
-        self._repo.save(current)
-        _sync_to_env(current)
-        self._apply_runtime(current)
-        return self.get_effective_settings()
-
-    def reset_group(self, group: str) -> dict:
-        """Remove overrides for a group, reverting to defaults."""
-        current = self._repo.load() or {}
-        keys_in_group = [k for k, v in SETTINGS_SCHEMA.items() if v["group"] == group]
-        for key in keys_in_group:
-            current.pop(key, None)
-        if current:
-            self._repo.save(current)
-        else:
-            self._repo.delete()
-        _sync_to_env(current, remove_keys=set(keys_in_group))
-        effective = current if current else None
-        self._apply_runtime(effective)
-        return self.get_effective_settings()
-
-    def _defaults_from_model(self) -> dict[str, str]:
-        defaults: dict[str, str] = {}
-        for k, v in SETTINGS_SCHEMA.items():
-            defaults[k] = str(v.get("default", ""))
-        return defaults
-
-    def _validate_against_model(self, data: dict[str, str]) -> None:
-        """Validate the full override set by constructing a Settings model."""
-        defaults = self._defaults_from_model()
-        merged = {**defaults, **data}
+            if key in Settings.model_fields:
+                snapshot[key] = value
         settings_fields = Settings.model_fields.keys()
-        validation_data = {k: v for k, v in merged.items() if k in settings_fields}
+        validation_data = {k: v for k, v in snapshot.items() if k in settings_fields}
         try:
             Settings(**validation_data)
         except Exception as exc:
             from fastapi import HTTPException
             raise HTTPException(status_code=422, detail={"validation": str(exc)})
 
-    @staticmethod
-    def _apply_runtime(overrides: dict[str, str] | None) -> None:
-        """Update in-memory settings and rebuild LLM registry."""
-        from comp_synth.config import apply_db_overrides
 
-        defaults = {k: str(v.get("default", "")) for k, v in SETTINGS_SCHEMA.items()}
-        merged = {**defaults, **(overrides or {})}
-        apply_db_overrides(merged)
-
+def _rebuild_llm_if_needed(changed_fields: set[str]) -> None:
+    """Rebuild the global LLM registry when LLM-related fields change."""
+    if LLM_FIELDS.intersection(changed_fields):
         import comp_synth.llm_provider.registry as _mod
         from comp_synth.config import settings as _s
         from comp_synth.llm_provider.registry import LLMRegistry
 
         _mod.llm_registry = LLMRegistry(_s.model_dump())
+
+
+def _apply_runtime(updates: dict[str, str]) -> None:
+    """Patch the in-memory settings singleton with updates, rebuild LLM if needed."""
+    from comp_synth.config import apply_db_overrides
+
+    apply_db_overrides(updates)
+    _rebuild_llm_if_needed(updates)
+
+
+def _apply_runtime_reset(keys: set[str]) -> None:
+    """Reset specified keys on the singleton to their Settings defaults, rebuild LLM if needed."""
+    fresh = Settings()
+    for key in keys:
+        if hasattr(fresh, key):
+            setattr(settings, key, getattr(fresh, key))
+    _rebuild_llm_if_needed(keys)
