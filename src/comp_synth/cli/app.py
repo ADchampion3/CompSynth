@@ -199,6 +199,43 @@ def reports_get(
 
 # ── sources ──────────────────────────────────────────────────────────────────
 
+@sources_app.command("list")
+def sources_list(
+    ctx: typer.Context,
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output."),
+) -> None:
+    """List configured subscription sources."""
+    from comp_synth.services.source_service import SourceService
+
+    db_path = _get_db_path(ctx)
+    svc = SourceService(source_db_path=db_path)
+    sources = svc.list_sources()
+
+    if json_output:
+        payload = [
+            {
+                "source_key": s.source_key,
+                "name": s.name,
+                "type": s.source_type,
+                "url": s.url,
+                "enabled": s.enabled,
+                "javascript": s.javascript,
+            }
+            for s in sources
+        ]
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+        return
+
+    if not sources:
+        typer.echo("No sources configured. Use `compsynth sources import` to load subscriptions.yaml.")
+        return
+
+    for s in sources:
+        status_mark = "+" if s.enabled else "-"
+        name = s.name or s.url
+        typer.echo(f"[{status_mark}] {name} ({s.source_type}) {s.url}")
+
+
 @sources_app.command("import")
 def sources_import(
     path: Path | None = typer.Option(None, "--path", help="Subscriptions YAML path."),
