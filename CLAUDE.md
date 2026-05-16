@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CompSynth is a content aggregation and publishing system (内容聚合与发布系统). It fetches content from RSS feeds, web pages, and Arxiv, deduplicates and persists via SQLite, generates summaries via LLM, and publishes aggregated reports.
+CompSynth is an information subscription and viewing system (信息订阅与阅读系统). It fetches content from RSS feeds, web pages, and Arxiv, deduplicates and persists via SQLite, generates summaries via LLM, and publishes aggregated reports. The system exposes a FastAPI HTTP API and a Typer CLI that share a common service layer.
 
 ## Commands
 
@@ -15,16 +15,29 @@ uv sync
 # Run the full pipeline (crawl → dedup → summarize → publish)
 uv run compsynth
 
-# Start the API server (serves Web UI + API)
-uv run compsynth serve
+# Start the API server (serves API; frontend is separate)
+uv run compsynth serve [--host 127.0.0.1] [--port 8000]
 
 # CLI subcommands
 uv run compsynth crawl              # Run crawl pipeline only
 uv run compsynth dashboard          # Print dashboard summary JSON
+uv run compsynth status             # Human-readable system health check
+uv run compsynth status --json      # Machine-readable health check
+uv run compsynth doctor             # Validate setup (env, DB, API keys, SMTP)
+uv run compsynth logs [--last] [-n 50] [--level ERROR]  # View log files
+uv run compsynth notify [--file <path>]  # Send digest via notification channels
 uv run compsynth reports list       # List generated reports
 uv run compsynth reports get <id>   # Get report content
 uv run compsynth sources import     # Import subscriptions.yaml → DB
-uv run compsynth sources export      # Export DB → subscriptions.yaml
+uv run compsynth sources export     # Export DB → subscriptions.yaml
+uv run compsynth config show        # Print effective config (secrets masked)
+
+# Global options (apply to all commands)
+uv run compsynth -v/--verbose       # Debug-level output
+uv run compsynth -q/--quiet         # Suppress non-error output
+uv run compsynth --cron             # Cron mode: suppress JSON summary on success
+uv run compsynth --db-path <path>   # Override SQLite database path
+uv run compsynth -V/--version       # Print version
 
 # Run tests
 uv run python -m pytest -q
@@ -39,41 +52,55 @@ uv run python -m compileall -q src tests
 ## Architecture
 
 ```
-Input Sources (RSS, Web, JavaScript Web)
-    ↓
-crawlers/ — fetches and extracts structured ContentItem
-    ↓
-schema/ — Pydantic models (ContentItem, RSSItem, WebPageItem)
-    ↓
-store/ — CrawlTracker (SQLite) + SchemaStore (SQLite) for dedup & persistence
-    ↓
-orchestration/ — Plain async pipeline: fetch → dedup → summarize → publish → notify
-    ↓
-llm_provider/ — LLMRegistry supporting OpenAI-compatible and Anthropic providers
-    ↓
-publishers/ — publishes aggregated reports to target platforms and notification channels
+CLI (Typer)                      FastAPI API
+    │                                │
+    └──────────┬─────────────────────┘
+               v
+        services/ — shared business logic
+               │
+    ┌──────────┼──────────────────┐
+    v          v                  v
+orchestration/  store/           llm_provider/
+pipeline nodes  repositories     LLM registry
+    │          + SQLAlchemy
+    v
+crawlers/ + publishers/
 ```
 
 ### Key Modules
 
 | Module | Purpose |
 |--------|---------|
+| `cli/app.py` | Typer CLI root app with all commands (crawl, serve, dashboard, status, doctor, logs, notify, reports, sources, config) |
+| `cli/exit_codes.py` | Exit code constants (EXIT_SUCCESS, EXIT_PARTIAL, EXIT_FATAL) |
+| `api/app.py` | FastAPI application factory with CORS, error handlers, lifespan YAML→DB sync |
+| `api/deps.py` | Dependency injection: session factory, settings, DB init |
+| `api/routers/` | Route handlers: articles, sources, crawls, reports, dashboard, tags, settings |
+| `api/schemas.py` | Pydantic request/response models for API endpoints |
+| `api/mappers.py` | Domain ↔ API response mappers |
+| `services/article_service.py` | Article list, detail, filters, state mutations |
+| `services/source_service.py` | Source CRUD, YAML import/export, health, test |
+| `services/crawl_service.py` | Crawl orchestration: run all, run one, status tracking |
+| `services/report_service.py` | Report listing, detail, generation |
+| `services/dashboard_service.py` | Dashboard summary: counts, health, important unread |
+| `services/settings_service.py` | Settings read/write from DB overrides |
 | `schema/content_item.py` | `ContentItem` base model with source, url, title, content, metadata |
 | `schema/source.py` | `SourceConfig` model for subscription source definitions |
+| `schema/report.py` | Report metadata model |
+| `schema/crawl_run.py` | Crawl run tracking model |
 | `crawlers/` | RSSCrawler, AdaptiveWebCrawler, DynamicWebCrawler implementations |
 | `crawlers/extractors.py` | `DOMExtractor` for CSS-selector and LLM-based content extraction |
-| `store/crawl_tracker.py` | SQLite-backed crawl tracking and deduplication |
-| `store/schema_store.py` | SQLite-backed site schema storage for CSS selectors |
-| `store/migrations.py` | Lightweight SQLite schema bootstrap and migration tracking |
-| `store/repositories/` | Data access layer: article, source, crawl outcome, report repositories |
+| `store/models.py` | SQLAlchemy ORM models |
+| `store/database.py` | Engine and session factory setup |
+| `store/migrations.py` | SQLite schema bootstrap and migration tracking |
+| `store/repositories/` | Data access layer: article, source, crawl_run, report, article_state, source_crawl_outcome, settings, site_schema |
 | `orchestration/pipeline.py` | Plain async pipeline runner and routing |
 | `orchestration/nodes.py` | Pipeline nodes: fetch, dedup, summarize, publish, notify |
 | `orchestration/content_manager.py` | Source dispatch, concurrency control, detail fetch orchestration |
-| `services/` | Business logic: source, article, crawl, dashboard, report services |
-| `api/` | FastAPI application with routers for articles, sources, crawls, tags, reports, dashboard |
-| `api/schemas.py` | Pydantic request/response models for API endpoints |
 | `llm_provider/registry.py` | LLM provider registry via LangChain |
 | `utils/json_extraction.py` | Shared JSON extraction from LLM output (code blocks, mixed text) |
+| `utils/logging.py` | Loguru logger configuration |
+| `utils/rate_limiter.py` | Per-domain rate limiting |
 | `prompt.py` | LLM prompts for analysis and report generation |
 | `publishers/base.py` | `BasePublisher` abstract class with `get_config()` and `publish()` |
 | `publishers/email.py` | `EmailPublisher` — SMTP with auto-detect, Markdown→HTML, multipart/alternative |
@@ -81,19 +108,28 @@ publishers/ — publishes aggregated reports to target platforms and notificatio
 
 ### Config
 
-Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.py`). Key vars: `COMPSYNTH_DATA_DIR`, `COMPSYNTH_CRAWL_DB_PATH`, `COMPSYNTH_SITE_SCHEMA_DB_PATH`, `COMPSYNTH_SUBSCRIPTIONS_PATH`, LLM API keys.
+Settings are defined in `src/comp_synth/config.py` using `pydantic-settings`. Environment variables prefixed `COMPSYNTH_` (loaded from `.env` file). Key vars: `COMPSYNTH_DATA_DIR`, `COMPSYNTH_CRAWL_DB_PATH`, `COMPSYNTH_SITE_SCHEMA_DB_PATH`, `COMPSYNTH_SUBSCRIPTIONS_PATH`, LLM API keys.
 
-**YAML/DB sync**: On startup, `subscriptions.yaml` is synced to `crawl_state.db` (YAML is source of truth). The API server and CLI pipeline both read from the DB at runtime.
+DB settings can override env vars at runtime via `apply_db_overrides()`.
+
+**YAML/DB sync**: On startup (both CLI pipeline and API server), `subscriptions.yaml` is synced to `crawl_state.db` (YAML is source of truth for import). The API server and CLI pipeline both read from the DB at runtime.
 
 ### Entry Point
 
-`src/comp_synth/main.py` exposes the `compsynth` console script with subcommands:
+`src/comp_synth/main.py` is the backward-compat shim. The real CLI entry point is `src/comp_synth/cli/app.py` (Typer app). Console script: `compsynth`.
+
+Subcommands:
 - `compsynth` (no subcommand): runs full pipeline (crawl → dedup → summarize → publish → notify)
 - `compsynth serve`: starts FastAPI server on http://127.0.0.1:8000
 - `compsynth crawl`: runs crawl pipeline only
 - `compsynth dashboard`: prints dashboard JSON
+- `compsynth status`: human-readable system health
+- `compsynth doctor`: validates setup (env, DB, keys, SMTP)
+- `compsynth logs`: views log files
+- `compsynth notify`: sends digest via notification channels
 - `compsynth reports list/get`: report management
 - `compsynth sources import/export`: subscription source sync between YAML and DB
+- `compsynth config show`: prints effective configuration
 
 ### Data Flow
 
@@ -106,6 +142,20 @@ Environment variables prefixed `COMPSYNTH_` (defined in `src/comp_synth/config.p
 6. Publish: LLM generates Markdown report to output/digest_YYYYMMDD.md
 7. Notify: send report to configured channels (email via SMTP)
 ```
+
+### API Endpoints
+
+All routes are prefixed `/api`:
+
+| Group | Endpoints |
+|-------|-----------|
+| Articles | `GET /api/articles` (paginated list with filters/sort), `GET /api/articles/{id}`, `PATCH .../state`, `PATCH .../like`, `PATCH .../note`, `GET .../related` |
+| Sources | `GET /api/sources`, `POST /api/sources`, `PATCH /api/sources/{key}`, `DELETE /api/sources/{key}`, `POST /api/sources/test`, `POST /api/sources/import-yaml`, `GET /api/sources/export-yaml` |
+| Crawls | `POST /api/crawls` (run all), `POST /api/crawls/{key}` (run one), `GET /api/crawls/{run_id}`, `GET /api/crawls` (history) |
+| Reports | `GET /api/reports`, `GET /api/reports/{id}`, `POST /api/reports/generate` |
+| Dashboard | `GET /api/dashboard` |
+| Tags | `GET /api/tags` |
+| Settings | `GET /api/settings`, `PATCH /api/settings` |
 
 ## Behavioral Guidelines
 
