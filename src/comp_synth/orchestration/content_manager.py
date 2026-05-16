@@ -214,6 +214,7 @@ class ContentManager:
         self._strategy_factory = strategy_factory or SourceStrategyFactory.create_default_factory()
         self._tag_vocabulary = tag_vocabulary
         self._domain_limiter = DomainRateLimiter(min_interval=self.CRAWL_DELAY)
+        self._domain_proxy_store = None
 
     async def _throttled_fetch_detail(
         self, item: ContentItem, crawler: BaseCrawler, source_type: str, site_name: str,
@@ -475,6 +476,37 @@ class ContentManager:
             metadata=item.metadata,
         )
 
+    _PROXY_TRIGGER_PATTERNS = (
+        "timeout", "timed out", "connection refused", "connectionreset",
+        "connection aborted", "no route to host", "network is unreachable",
+        "ssl", "certificate", "403", "451", "cloudflare", "access denied",
+        "blocked", "captcha", "rate limit", "too many requests", "429",
+    )
+
+    @staticmethod
+    def _is_proxy_trigger_error(error: str) -> bool:
+        lower = error.lower()
+        return any(p in lower for p in ContentManager._PROXY_TRIGGER_PATTERNS)
+
+    def _maybe_record_proxy_failure(self, source: dict, error: str) -> None:
+        from comp_synth.config import settings
+
+        if not settings.proxy_auto_detect or not settings.proxy_url:
+            return
+        if not self._is_proxy_trigger_error(error):
+            return
+
+        domain = urlparse(source.get("url", "")).netloc
+        if not domain:
+            return
+
+        if self._domain_proxy_store is None:
+            from comp_synth.store.domain_proxy_store import DomainProxyStore
+            self._domain_proxy_store = DomainProxyStore()
+
+        self._domain_proxy_store.record_failure(domain, error)
+        logger.info("Recorded proxy failure for {domain}", domain=domain)
+
     async def _fetch_single_source(
         self,
         source: dict,
@@ -499,6 +531,7 @@ class ContentManager:
         except Exception as e:
             error_msg = f"爬取失败: {e}"
             logger.exception(f"ContentManager: {error_msg}")
+            self._maybe_record_proxy_failure(source, str(e))
             return (source_name, None, error_msg)
 
     async def fetch_all(

@@ -11,7 +11,7 @@ from comp_synth.config import Settings, settings
 
 MASKED_SENTINEL = "***configured***"
 
-SENSITIVE_FIELDS = {"openai_api_key", "anthropic_api_key"}
+SENSITIVE_FIELDS = {"openai_api_key", "anthropic_api_key", "proxy_url"}
 
 LLM_FIELDS = {
     "llm_provider", "openai_api_key", "openai_base_url",
@@ -76,6 +76,9 @@ SETTINGS_SCHEMA = {
     "max_concurrent_requests": {"type": "integer", "group": "crawler", "label": "Max Concurrent Requests", "sensitive": False, "description": "Maximum parallel HTTP requests", "default": 5, "constraints": {"minimum": 1, "maximum": 50}},
     "list_page_time_threshold_days": {"type": "integer", "group": "crawler", "label": "List Page Time Threshold", "sensitive": False, "description": "Skip articles older than this many days", "default": 7, "constraints": {"minimum": 1, "maximum": 90}},
     "list_page_count_threshold": {"type": "integer", "group": "crawler", "label": "List Page Count Threshold", "sensitive": False, "description": "Maximum articles to extract from list pages", "default": 20, "constraints": {"minimum": 1, "maximum": 100}},
+    "proxy_url": {"type": "string", "group": "crawler", "label": "Proxy URL", "sensitive": True, "description": "HTTP/SOCKS 代理地址 (e.g. http://user:pass@proxy:8080)", "default": ""},
+    "proxy_enabled": {"type": "boolean", "group": "crawler", "label": "Proxy Enabled", "sensitive": False, "description": "启用代理（仅对标记为需要代理的域名生效）", "default": False},
+    "proxy_auto_detect": {"type": "boolean", "group": "crawler", "label": "Auto-Detect Proxy Need", "sensitive": False, "description": "连续爬取失败后自动标记域名需要代理", "default": True},
     "log_dir": {"type": "string", "group": "storage", "label": "Log Directory", "sensitive": False, "description": "Directory for log files", "default": "./logs"},
     "data_dir": {"type": "string", "group": "storage", "label": "Data Directory", "sensitive": False, "description": "Root data directory", "default": "./data"},
     "crawl_db_path": {"type": "string", "group": "storage", "label": "Crawl DB Path", "sensitive": False, "description": "SQLite crawl state database path", "default": "./data/crawl_state.db"},

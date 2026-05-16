@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 from crawlee import service_locator
 from crawlee.crawlers import BeautifulSoupCrawler, PlaywrightCrawler
+from crawlee.proxy_configuration import ProxyConfiguration
 from crawlee.storage_clients import MemoryStorageClient
 from loguru import logger
 
@@ -39,6 +40,13 @@ class CrawleeFetchService:
         self._rate_limiter = DomainRateLimiter(
             min_interval=settings.crawl_domain_delay
         )
+        self._proxy_store = None
+
+    def _get_proxy_store(self):
+        if self._proxy_store is None:
+            from comp_synth.store.domain_proxy_store import DomainProxyStore
+            self._proxy_store = DomainProxyStore()
+        return self._proxy_store
 
     @staticmethod
     def _extract_domain(url: str) -> str:
@@ -62,12 +70,29 @@ class CrawleeFetchService:
         """Reset the singleton (for testing)."""
         cls._instance = None
 
-    async def fetch_html(self, url: str) -> str:
-        """Fetch raw HTML from a URL using Crawlee's BeautifulSoupCrawler.
+    def _build_proxy_config(self, url: str) -> ProxyConfiguration | None:
+        from comp_synth.config import settings
 
-        Replaces httpx + tenacity retry with Crawlee's built-in retry
-        (max_request_retries=3).
-        """
+        if not settings.proxy_enabled or not settings.proxy_url:
+            return None
+
+        domain = self._extract_domain(url)
+        if not self._get_proxy_store().needs_proxy(domain):
+            return None
+
+        logger.info("Using proxy for {domain}", domain=domain)
+        return ProxyConfiguration(proxy_urls=[settings.proxy_url])
+
+    def _record_success(self, domain: str) -> None:
+        from comp_synth.config import settings
+
+        if not settings.proxy_enabled or not settings.proxy_url:
+            return
+
+        self._get_proxy_store().record_success(domain)
+
+    async def fetch_html(self, url: str) -> str:
+        """Fetch raw HTML from a URL using Crawlee's BeautifulSoupCrawler."""
         domain = self._extract_domain(url)
         await self._rate_limiter.acquire(domain)
         _clear_global_storage_cache()
@@ -77,11 +102,13 @@ class CrawleeFetchService:
             body = await context.http_response.read()
             result.append(body.decode("utf-8", errors="replace"))
 
+        proxy_config = self._build_proxy_config(url)
         crawler = BeautifulSoupCrawler(
             request_handler=handler,
             storage_client=MemoryStorageClient(),
             max_requests_per_crawl=1,
             max_request_retries=3,
+            proxy_configuration=proxy_config,
         )
 
         await crawler.run([url])
@@ -89,6 +116,7 @@ class CrawleeFetchService:
         if not result:
             raise RuntimeError(f"Failed to fetch {url}")
 
+        self._record_success(domain)
         html = result[0]
         logger.debug(
             "Crawlee fetch_html {url} ({size} bytes)",
@@ -98,10 +126,7 @@ class CrawleeFetchService:
         return html
 
     async def fetch_html_with_browser(self, url: str, wait_time: float = 2.0) -> str:
-        """Fetch rendered HTML using Crawlee's PlaywrightCrawler.
-
-        Replaces DrissionPage with Playwright, managed by Crawlee's lifecycle.
-        """
+        """Fetch rendered HTML using Crawlee's PlaywrightCrawler."""
         domain = self._extract_domain(url)
         await self._rate_limiter.acquire(domain)
         _clear_global_storage_cache()
@@ -113,11 +138,13 @@ class CrawleeFetchService:
             html = await context.page.content()
             result.append(html)
 
+        proxy_config = self._build_proxy_config(url)
         crawler = PlaywrightCrawler(
             request_handler=handler,
             storage_client=MemoryStorageClient(),
             max_requests_per_crawl=1,
             max_request_retries=3,
+            proxy_configuration=proxy_config,
         )
 
         await crawler.run([url])
@@ -125,6 +152,7 @@ class CrawleeFetchService:
         if not result:
             raise RuntimeError(f"Failed to fetch {url} with browser")
 
+        self._record_success(domain)
         html = result[0]
         logger.debug(
             "Crawlee fetch_html_with_browser {url} → {size} bytes",
