@@ -49,6 +49,54 @@ cd CompSynth
 uv sync
 ```
 
+> **验证安装**
+>
+> ```bash
+> uv run compsynth --version
+> # compsynth 0.1.0
+> ```
+
+### 安装为系统命令（推荐）
+
+`uv sync` 仅安装依赖，不会在 PATH 中创建 `compsynth` 命令。要直接使用 `compsynth` 而不带 `uv run` 前缀：
+
+**方式 A：编辑式安装（开发推荐）**
+
+```bash
+uv sync
+uv pip install -e .
+```
+
+之后在项目目录下（或激活 venv 后）直接运行：
+
+```bash
+compsynth --version
+compsynth serve
+```
+
+> **原理**：`pyproject.toml` 中声明了 `[project.scripts] compsynth = "comp_synth.cli:app"`，`pip install -e .` 会在 `.venv/Scripts/` 下创建脚本链接。修改代码后命令自动生效，无需重新安装。
+>
+> **注意**：此方式依赖项目 venv。在非项目目录下运行需要先激活 venv：
+> ```bash
+> # Windows
+> .venv\Scripts\activate
+> # macOS/Linux
+> source .venv/bin/activate
+> ```
+
+**方式 B：全局工具安装**
+
+```bash
+uv tool install -e .
+```
+
+compsynth 将安装到 uv 全局工具目录，任何位置都可直接运行 `compsynth`，无需激活 venv。
+
+> **注意**：代码修改后需要重新安装才能生效：
+> ```bash
+> uv tool install -e . --force
+> ```
+
 ---
 
 ## 快速开始
@@ -57,7 +105,8 @@ uv sync
 
 ```bash
 # 启动后端 API 服务器
-uv run compsynth serve
+compsynth serve
+# 或 uv run compsynth serve
 
 # 新终端：启动前端
 cd frontend
@@ -71,22 +120,152 @@ npm run dev
 
 打开设置页面 → 订阅源管理，添加你的订阅源（支持 RSS 和 Web 两种类型）。
 
+### 3. 首次检查
+
+```bash
+# 验证环境配置是否正确
+compsynth doctor
+
+# 查看系统状态
+compsynth status
+```
+
 ---
 
 ## CLI
 
+### 全局选项
+
+所有命令共享以下选项：
+
+| 选项 | 短选项 | 说明 |
+|------|--------|------|
+| `--verbose` | `-v` | 显示 DEBUG 级别日志 |
+| `--quiet` | `-q` | 仅输出错误（JSON 摘要仍输出） |
+| `--cron` | | Cron 模式：成功时不输出 JSON。也可通过 `COMPSYNTH_CRON=1` 环境变量启用 |
+| `--version` | `-V` | 打印版本号并退出 |
+| `--db-path <path>` | | 指定 SQLite 数据库路径（覆盖默认 `data/crawl_state.db`） |
+
+### 命令速查
+
 | 命令 | 说明 |
 |------|------|
-| `uv run compsynth` | 运行完整流程（抓取 → 去重 → 摘要 → 发布） |
-| `uv run compsynth serve` | 启动 API 服务器（默认 http://127.0.0.1:8000） |
-| `uv run compsynth crawl` | 仅运行爬取 pipeline |
-| `uv run compsynth dashboard` | 打印仪表盘摘要 JSON |
-| `uv run compsynth reports list` | 列出已生成的报告 |
-| `uv run compsynth reports get <id>` | 读取指定报告内容 |
-| `uv run compsynth sources import` | 从 YAML 导入订阅源到数据库 |
-| `uv run compsynth sources export` | 从数据库导出订阅源到 YAML |
-| `uv run compsynth notify` | 发送最新日报到已配置的通知渠道 |
-| `uv run compsynth notify --file <path>` | 发送指定 Markdown 文件 |
+| `compsynth` | 运行完整流程（抓取 → 去重 → 摘要 → 发布） |
+| `compsynth serve` | 启动 API 服务器 |
+| `compsynth crawl` | 仅运行爬取 pipeline |
+| `compsynth status` | 系统健康状态概览 |
+| `compsynth doctor` | 验证环境配置是否正确 |
+| `compsynth dashboard` | 打印仪表盘摘要 JSON |
+| `compsynth logs` | 查看日志文件 |
+| `compsynth config show` | 打印当前生效的配置（密钥脱敏） |
+
+### 退出码
+
+<!-- AUTO-GENERATED from src/comp_synth/cli/exit_codes.py -->
+
+| 退出码 | 常量 | 含义 |
+|--------|------|------|
+| `0` | `EXIT_SUCCESS` | 全部成功 |
+| `1` | `EXIT_PARTIAL` | 部分失败（如部分源爬取失败、doctor 检查有异常项） |
+| `2` | `EXIT_FATAL` | 致命错误（如数据库不可用、未捕获异常） |
+
+<!-- END AUTO-GENERATED -->
+| `compsynth sources list` | 列出已配置的订阅源 |
+| `compsynth sources import` | 从 YAML 导入订阅源到数据库 |
+| `compsynth sources export` | 从数据库导出订阅源到 YAML |
+| `compsynth reports list` | 列出已生成的报告 |
+| `compsynth reports get <id>` | 读取指定报告内容 |
+| `compsynth notify` | 发送最新日报到已配置的通知渠道 |
+
+> ### 命令参数详情
+>
+> #### `compsynth serve`
+>
+> 启动 FastAPI HTTP API 服务器。前端通过此 API 读写数据。
+>
+> | 参数 | 默认值 | 说明 |
+> |------|--------|------|
+> | `--host` | `127.0.0.1` | 绑定地址。局域网访问改为 `0.0.0.0` |
+> | `--port` | `8000` | 绑定端口 |
+>
+> ```bash
+> compsynth serve --host 0.0.0.0 --port 9000
+> ```
+>
+> #### `compsynth status`
+>
+> 人类可读的系统健康检查。包含文章总数、不健康源数量、上次爬取状态、最新报告路径。退出码：`0` 正常，`1` 有异常源。
+>
+> | 参数 | 说明 |
+> |------|------|
+> | `--json` | 输出机器可读的 JSON 格式 |
+>
+> #### `compsynth doctor`
+>
+> 逐项检查环境配置：Python 版本、`.env` 文件、API Key、`subscriptions.yaml`、SQLite 目录、日志目录、SMTP（如已配置）。适用于首次部署或 CI 健康检查。
+>
+> | 参数 | 说明 |
+> |------|------|
+> | `--required-only` | 跳过可选检查（如备用 API Key、SMTP） |
+> | `--json` | 输出 JSON 格式，每项含 `name`、`ok`、`detail`、`required` |
+>
+> #### `compsynth logs`
+>
+> 查看最近的应用日志文件。日志自动按日轮转，应用日志保留 30 天，错误日志保留 90 天。
+>
+> | 参数 | 默认值 | 说明 |
+> |------|--------|------|
+> | `--last` | `true` | 显示最新的日志文件 |
+> | `-n` / `--lines` | `50` | 显示最后 N 行 |
+> | `-l` / `--level` | | 按级别过滤：`DEBUG`、`INFO`、`WARNING`、`ERROR` |
+>
+> ```bash
+> compsynth logs -n 20 -l ERROR
+> ```
+>
+> #### `compsynth sources list`
+>
+> 列出所有已配置的订阅源。`[+]` 表示启用，`[-]` 表示禁用。
+>
+> | 参数 | 说明 |
+> |------|------|
+> | `--json` | 输出 JSON 数组，含 `source_key`、`name`、`type`、`url`、`enabled` |
+>
+> #### `compsynth sources import`
+>
+> 将 `subscriptions.yaml` 导入 SQLite 数据库。启动时也会自动执行此操作。
+>
+> | 参数 | 说明 |
+> |------|------|
+> | `--path <path>` | 指定 YAML 文件路径（默认 `subscriptions.yaml`） |
+>
+> #### `compsynth sources export`
+>
+> 将数据库中的订阅源导出为 YAML 文件。
+>
+> | 参数 | 说明 |
+> |------|------|
+> | `--output <path>` | 输出路径（默认覆盖 `subscriptions.yaml`） |
+>
+> #### `compsynth reports get`
+>
+> 读取指定报告的完整内容（Markdown 格式）。
+>
+> ```bash
+> compsynth reports get digest_20260513
+> ```
+>
+> #### `compsynth notify`
+>
+> 通过已配置的通知渠道（如邮件）发送报告。不带参数时自动查找最新报告。
+>
+> | 参数 | 说明 |
+> |------|------|
+> | `--file <path>` | 指定要发送的 Markdown 文件路径 |
+>
+> #### `compsynth config show`
+>
+> 打印当前生效的所有配置项。敏感字段（API Key、密码）自动脱敏为 `****xxxx`。适合调试配置优先级问题。
 
 ---
 
@@ -172,26 +351,83 @@ subscriptions.yaml ──→ [启动时自动同步] ──→ crawl_state.db
 
 ### 环境变量 (.env)
 
+<!-- AUTO-GENERATED from src/comp_synth/config.py + .env.example — do not edit manually -->
+
 LLM 等配置可直接在 Web UI 的设置页面中修改（无需编辑文件），也可通过环境变量配置：
 
 ```bash
 cp .env.example .env
 ```
 
+**路径**
+
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `COMPSYNTH_OPENAI_API_KEY` | OpenAI API Key | - |
+| `COMPSYNTH_LOG_DIR` | 日志目录 | `./logs` |
+| `COMPSYNTH_LOG_RETAIN_DAYS` | 应用日志保留天数 | `30 days` |
+| `COMPSYNTH_DATA_DIR` | 数据目录 | `./data` |
+
+**LLM**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_LLM_PROVIDER` | LLM 提供商（`openai` 或 `anthropic`） | `openai` |
+| `COMPSYNTH_OPENAI_API_KEY` | OpenAI API Key（使用 OpenAI 兼容接口的模型也用这个） | - |
+| `COMPSYNTH_OPENAI_BASE_URL` | OpenAI API 地址 | `https://api.openai.com/v1` |
 | `COMPSYNTH_ANTHROPIC_API_KEY` | Anthropic API Key | - |
-| `COMPSYNTH_MODEL` | 模型名称 | gpt-4o-mini |
-| `COMPSYNTH_DATA_DIR` | 数据目录 | ./data |
-| `COMPSYNTH_SUBSCRIPTIONS_PATH` | 订阅源配置文件路径 | ./subscriptions.yaml |
-| `COMPSYNTH_TIME_THRESHOLD_DAYS` | 内容时间阈值（天） | 7 |
-| `COMPSYNTH_NOTIFICATION_CHANNELS` | 推送渠道（逗号分隔，如 `email`） | - |
-| `COMPSYNTH_SMTP_HOST` | SMTP 服务器地址 | 自动检测 |
+| `COMPSYNTH_ANTHROPIC_BASE_URL` | Anthropic API 地址 | - |
+| `COMPSYNTH_MODEL` | 模型名称（如 `gpt-4o-mini`、`claude-sonnet-4-20250514`） | `gpt-4o-mini` |
+| `COMPSYNTH_LLM_BATCH_SIZE` | LLM 批处理大小 | `10` |
+| `COMPSYNTH_SUMMARIZE_CHUNK_SIZE` | 摘要分块大小 | `50` |
+
+**存储**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_CRAWL_DB_PATH` | 爬取状态数据库路径 | `./data/crawl_state.db` |
+| `COMPSYNTH_SITE_SCHEMA_DB_PATH` | 站点 Schema 数据库路径 | `./data/site_schemas.db` |
+
+**爬虫**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_REQUEST_TIMEOUT` | 请求超时（秒） | `30` |
+| `COMPSYNTH_MAX_CONCURRENT_REQUESTS` | 单源最大并发请求数 | `5` |
+| `COMPSYNTH_MAX_CONCURRENT_SOURCES` | 最大并发源数 | `10` |
+| `COMPSYNTH_CRAWL_DOMAIN_DELAY` | 同域名请求间隔（秒） | `1.0` |
+| `COMPSYNTH_LIST_PAGE_TIME_THRESHOLD_DAYS` | 列表页时间阈值（天） | `7` |
+| `COMPSYNTH_LIST_PAGE_COUNT_THRESHOLD` | 列表页数量阈值 | `20` |
+
+**选择器健康刷新（可选）**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_SELECTOR_ZERO_REFRESH_ENABLED` | 启用零结果选择器自动刷新 | `true` |
+| `COMPSYNTH_SELECTOR_ZERO_REFRESH_DAYS` | 连续零结果天数触发刷新 | `3` |
+| `COMPSYNTH_SELECTOR_ZERO_REFRESH_LOOKBACK_DAYS` | 健康检查回溯天数 | `7` |
+| `COMPSYNTH_SELECTOR_ZERO_REFRESH_COOLDOWN_HOURS` | 刷新冷却时间（小时） | `24` |
+
+**订阅与输出**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_SUBSCRIPTIONS_PATH` | 订阅源配置文件路径 | `./subscriptions.yaml` |
+| `COMPSYNTH_OUTPUT_DIR` | 报告输出目录 | `./output` |
+
+**通知推送**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_NOTIFICATION_CHANNELS` | 启用的推送渠道，逗号分隔（如 `email`） | - |
+| `COMPSYNTH_SMTP_HOST` | SMTP 服务器地址 | - |
+| `COMPSYNTH_SMTP_PORT` | SMTP 端口 | `465` |
 | `COMPSYNTH_SMTP_USER` | SMTP 用户名 | - |
 | `COMPSYNTH_SMTP_PASSWORD` | SMTP 密码/授权码 | - |
 | `COMPSYNTH_SMTP_FROM` | 发件人地址 | - |
 | `COMPSYNTH_SMTP_TO` | 收件人地址 | - |
+| `COMPSYNTH_SMTP_USE_TLS` | 启用 TLS | `true` |
+
+<!-- END AUTO-GENERATED -->
 
 完整配置参考见 `.env.example`。
 

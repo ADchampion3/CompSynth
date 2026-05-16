@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 
     # 路径
     log_dir: Path = Path("./logs")
+    log_retain_days: str = "30 days"
     data_dir: Path = Path("./data")
 
     # LLM

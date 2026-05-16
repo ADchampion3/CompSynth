@@ -127,32 +127,30 @@ class TestNotifyErrorHandling:
 
 
 class TestNotifyCommand:
-    def test_skips_when_no_channels(self):
+    def test_skips_when_no_channels(self, capsys):
         from comp_synth.main import main
 
-        with patch("comp_synth.config.settings") as mock_settings, \
-             patch("builtins.print") as mock_print:
+        with patch("comp_synth.config.settings") as mock_settings:
             mock_settings.get_channels.return_value = []
             main(["notify"])
-            output = mock_print.call_args[0][0]
-            import json
-            result = json.loads(output)
-            assert result["status"] == "skipped"
+        output = capsys.readouterr().out
+        import json
+        result = json.loads(output)
+        assert result["status"] == "skipped"
 
-    def test_errors_when_no_digest(self, tmp_path):
+    def test_errors_when_no_digest(self, tmp_path, capsys):
         from comp_synth.main import main
 
-        with patch("comp_synth.config.settings") as mock_settings, \
-             patch("builtins.print") as mock_print:
+        with patch("comp_synth.config.settings") as mock_settings:
             mock_settings.get_channels.return_value = ["email"]
             mock_settings.output_dir = str(tmp_path / "no_output")
             main(["notify"])
-            import json
-            result = json.loads(mock_print.call_args[0][0])
-            assert result["status"] == "error"
-            assert "no digest" in result["error"]
+        import json
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "error"
+        assert "no digest" in result["error"]
 
-    def test_sends_latest_digest(self, tmp_path):
+    def test_sends_latest_digest(self, tmp_path, capsys):
         from comp_synth.main import main
 
         digest = tmp_path / "digest_20260513.md"
@@ -163,18 +161,17 @@ class TestNotifyCommand:
              patch("comp_synth.publishers.registry.get_enabled_publishers",
                    return_value=[mock_pub]), \
              patch.object(mock_pub, "publish", new_callable=AsyncMock,
-                          return_value={"status": "success", "details": {"to": "test@test.com"}}), \
-             patch("builtins.print") as mock_print:
+                          return_value={"status": "success", "details": {"to": "test@test.com"}}):
             mock_settings.get_channels.return_value = ["email"]
             mock_settings.output_dir = str(tmp_path)
             main(["notify"])
-            import json
-            result = json.loads(mock_print.call_args[0][0])
-            assert result["status"] == "sent"
-            assert str(digest) in result["source"]
-            assert result["results"][0]["status"] == "success"
+        import json
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "sent"
+        assert str(digest) in result["source"]
+        assert result["results"][0]["status"] == "success"
 
-    def test_sends_specified_file(self, tmp_path):
+    def test_sends_specified_file(self, tmp_path, capsys):
         from comp_synth.main import main
 
         report_file = tmp_path / "custom.md"
@@ -185,39 +182,36 @@ class TestNotifyCommand:
              patch("comp_synth.publishers.registry.get_enabled_publishers",
                    return_value=[mock_pub]), \
              patch.object(mock_pub, "publish", new_callable=AsyncMock,
-                          return_value={"status": "success", "details": {"to": "test@test.com"}}), \
-             patch("builtins.print") as mock_print:
+                          return_value={"status": "success", "details": {"to": "test@test.com"}}):
             mock_settings.get_channels.return_value = ["email"]
             mock_settings.output_dir = str(tmp_path)
             main(["notify", "--file", str(report_file)])
-            import json
-            result = json.loads(mock_print.call_args[0][0])
-            assert result["status"] == "sent"
-            assert str(report_file) in result["source"]
+        import json
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "sent"
+        assert str(report_file) in result["source"]
 
-    def test_errors_when_specified_file_missing(self, tmp_path):
+    def test_errors_when_specified_file_missing(self, tmp_path, capsys):
         from comp_synth.main import main
 
         missing = tmp_path / "nonexistent.md"
-        with patch("comp_synth.config.settings") as mock_settings, \
-             patch("builtins.print") as mock_print:
+        with patch("comp_synth.config.settings") as mock_settings:
             mock_settings.get_channels.return_value = ["email"]
             main(["notify", "--file", str(missing)])
-            import json
-            result = json.loads(mock_print.call_args[0][0])
-            assert result["status"] == "error"
-            assert "file not found" in result["error"]
+        import json
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "error"
+        assert "file not found" in result["error"]
 
-    def test_errors_when_file_not_markdown(self, tmp_path):
+    def test_errors_when_file_not_markdown(self, tmp_path, capsys):
         from comp_synth.main import main
 
         txt_file = tmp_path / "report.txt"
         txt_file.write_text("not markdown", encoding="utf-8")
-        with patch("comp_synth.config.settings") as mock_settings, \
-             patch("builtins.print") as mock_print:
+        with patch("comp_synth.config.settings") as mock_settings:
             mock_settings.get_channels.return_value = ["email"]
             main(["notify", "--file", str(txt_file)])
-            import json
-            result = json.loads(mock_print.call_args[0][0])
-            assert result["status"] == "error"
-            assert "only .md files" in result["error"]
+        import json
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "error"
+        assert "only .md files" in result["error"]
