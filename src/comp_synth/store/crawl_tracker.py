@@ -175,11 +175,23 @@ class CrawlTracker:
             repo.finish(run_id, status, new_items=new_items, errors=errors)
             session.commit()
 
-    def record_source_in_run(self, run_id: str, source_key: str, source_type: str, source_url: str, status: str, new_items: int = 0, error_text: str | None = None) -> None:
+    def record_source_in_run(
+        self,
+        run_id: str,
+        source_key: str,
+        source_type: str,
+        source_url: str,
+        status: str,
+        new_items: int = 0,
+        error_text: str | None = None,
+    ) -> None:
         """Record per-source outcome for the current crawl run."""
         with self._session_factory() as session:
             repo = CrawlRunRepository(session)
-            repo.record_source(run_id, source_key, source_type, source_url, status, new_items=new_items, error_text=error_text)
+            repo.record_source(
+                run_id, source_key, source_type, source_url, status,
+                new_items=new_items, error_text=error_text,
+            )
             session.commit()
 
     def get_completed_source_keys(self, run_id: str) -> set[str]:

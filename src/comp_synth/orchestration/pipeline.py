@@ -56,7 +56,7 @@ async def run_pipeline(initial_state: PipelineState | None = None) -> PipelineSt
     if run_id:
         content_manager = state.get("content_manager")
         if content_manager:
-            content_manager._tracker.finish_crawl_run(
+            content_manager.finish_crawl_run(
                 run_id,
                 status="completed",
                 new_items=len(state.get("new_items", [])),

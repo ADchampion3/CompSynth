@@ -592,6 +592,10 @@ class ContentManager:
 
         return result
 
+    def finish_crawl_run(self, run_id: str, status: str, new_items: int = 0, errors: list[str] | None = None) -> None:
+        """Finish a crawl run checkpoint."""
+        self._tracker.finish_crawl_run(run_id, status, new_items=new_items, errors=errors)
+
     def get_today_items(self) -> list[dict]:
         """获取今日从所有来源已存储的历史内容（单次查询）."""
         return self._tracker.get_today_items_all_sources()
