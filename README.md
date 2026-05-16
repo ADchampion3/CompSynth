@@ -158,6 +158,18 @@ compsynth status
 | `compsynth dashboard` | 打印仪表盘摘要 JSON |
 | `compsynth logs` | 查看日志文件 |
 | `compsynth config show` | 打印当前生效的配置（密钥脱敏） |
+
+### 退出码
+
+<!-- AUTO-GENERATED from src/comp_synth/cli/exit_codes.py -->
+
+| 退出码 | 常量 | 含义 |
+|--------|------|------|
+| `0` | `EXIT_SUCCESS` | 全部成功 |
+| `1` | `EXIT_PARTIAL` | 部分失败（如部分源爬取失败、doctor 检查有异常项） |
+| `2` | `EXIT_FATAL` | 致命错误（如数据库不可用、未捕获异常） |
+
+<!-- END AUTO-GENERATED -->
 | `compsynth sources list` | 列出已配置的订阅源 |
 | `compsynth sources import` | 从 YAML 导入订阅源到数据库 |
 | `compsynth sources export` | 从数据库导出订阅源到 YAML |
@@ -182,7 +194,7 @@ compsynth status
 >
 > #### `compsynth status`
 >
-> 人类可读的系统健康检查。包含文章总数、不健康源数量、上次爬取状态、最新报告路径。退出码：`0` 正常，`2` 有异常源。
+> 人类可读的系统健康检查。包含文章总数、不健康源数量、上次爬取状态、最新报告路径。退出码：`0` 正常，`1` 有异常源。
 >
 > | 参数 | 说明 |
 > |------|------|
@@ -339,26 +351,83 @@ subscriptions.yaml ──→ [启动时自动同步] ──→ crawl_state.db
 
 ### 环境变量 (.env)
 
+<!-- AUTO-GENERATED from src/comp_synth/config.py + .env.example — do not edit manually -->
+
 LLM 等配置可直接在 Web UI 的设置页面中修改（无需编辑文件），也可通过环境变量配置：
 
 ```bash
 cp .env.example .env
 ```
 
+**路径**
+
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `COMPSYNTH_OPENAI_API_KEY` | OpenAI API Key | - |
+| `COMPSYNTH_LOG_DIR` | 日志目录 | `./logs` |
+| `COMPSYNTH_LOG_RETAIN_DAYS` | 应用日志保留天数 | `30 days` |
+| `COMPSYNTH_DATA_DIR` | 数据目录 | `./data` |
+
+**LLM**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_LLM_PROVIDER` | LLM 提供商（`openai` 或 `anthropic`） | `openai` |
+| `COMPSYNTH_OPENAI_API_KEY` | OpenAI API Key（使用 OpenAI 兼容接口的模型也用这个） | - |
+| `COMPSYNTH_OPENAI_BASE_URL` | OpenAI API 地址 | `https://api.openai.com/v1` |
 | `COMPSYNTH_ANTHROPIC_API_KEY` | Anthropic API Key | - |
-| `COMPSYNTH_MODEL` | 模型名称 | gpt-4o-mini |
-| `COMPSYNTH_DATA_DIR` | 数据目录 | ./data |
-| `COMPSYNTH_SUBSCRIPTIONS_PATH` | 订阅源配置文件路径 | ./subscriptions.yaml |
-| `COMPSYNTH_TIME_THRESHOLD_DAYS` | 内容时间阈值（天） | 7 |
-| `COMPSYNTH_NOTIFICATION_CHANNELS` | 推送渠道（逗号分隔，如 `email`） | - |
-| `COMPSYNTH_SMTP_HOST` | SMTP 服务器地址 | 自动检测 |
+| `COMPSYNTH_ANTHROPIC_BASE_URL` | Anthropic API 地址 | - |
+| `COMPSYNTH_MODEL` | 模型名称（如 `gpt-4o-mini`、`claude-sonnet-4-20250514`） | `gpt-4o-mini` |
+| `COMPSYNTH_LLM_BATCH_SIZE` | LLM 批处理大小 | `10` |
+| `COMPSYNTH_SUMMARIZE_CHUNK_SIZE` | 摘要分块大小 | `50` |
+
+**存储**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_CRAWL_DB_PATH` | 爬取状态数据库路径 | `./data/crawl_state.db` |
+| `COMPSYNTH_SITE_SCHEMA_DB_PATH` | 站点 Schema 数据库路径 | `./data/site_schemas.db` |
+
+**爬虫**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_REQUEST_TIMEOUT` | 请求超时（秒） | `30` |
+| `COMPSYNTH_MAX_CONCURRENT_REQUESTS` | 单源最大并发请求数 | `5` |
+| `COMPSYNTH_MAX_CONCURRENT_SOURCES` | 最大并发源数 | `10` |
+| `COMPSYNTH_CRAWL_DOMAIN_DELAY` | 同域名请求间隔（秒） | `1.0` |
+| `COMPSYNTH_LIST_PAGE_TIME_THRESHOLD_DAYS` | 列表页时间阈值（天） | `7` |
+| `COMPSYNTH_LIST_PAGE_COUNT_THRESHOLD` | 列表页数量阈值 | `20` |
+
+**选择器健康刷新（可选）**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_SELECTOR_ZERO_REFRESH_ENABLED` | 启用零结果选择器自动刷新 | `true` |
+| `COMPSYNTH_SELECTOR_ZERO_REFRESH_DAYS` | 连续零结果天数触发刷新 | `3` |
+| `COMPSYNTH_SELECTOR_ZERO_REFRESH_LOOKBACK_DAYS` | 健康检查回溯天数 | `7` |
+| `COMPSYNTH_SELECTOR_ZERO_REFRESH_COOLDOWN_HOURS` | 刷新冷却时间（小时） | `24` |
+
+**订阅与输出**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_SUBSCRIPTIONS_PATH` | 订阅源配置文件路径 | `./subscriptions.yaml` |
+| `COMPSYNTH_OUTPUT_DIR` | 报告输出目录 | `./output` |
+
+**通知推送**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `COMPSYNTH_NOTIFICATION_CHANNELS` | 启用的推送渠道，逗号分隔（如 `email`） | - |
+| `COMPSYNTH_SMTP_HOST` | SMTP 服务器地址 | - |
+| `COMPSYNTH_SMTP_PORT` | SMTP 端口 | `465` |
 | `COMPSYNTH_SMTP_USER` | SMTP 用户名 | - |
 | `COMPSYNTH_SMTP_PASSWORD` | SMTP 密码/授权码 | - |
 | `COMPSYNTH_SMTP_FROM` | 发件人地址 | - |
 | `COMPSYNTH_SMTP_TO` | 收件人地址 | - |
+| `COMPSYNTH_SMTP_USE_TLS` | 启用 TLS | `true` |
+
+<!-- END AUTO-GENERATED -->
 
 完整配置参考见 `.env.example`。
 
