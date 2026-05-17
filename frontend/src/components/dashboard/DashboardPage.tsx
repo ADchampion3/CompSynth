@@ -11,6 +11,8 @@ export default function DashboardPage() {
   const startCrawl = useStartCrawl();
   useDocumentTitle("Briefing");
 
+  const isCrawling = startCrawl.isPending || data?.latest_crawl_run?.status === "running";
+
   if (isLoading) {
     return (
       <div className="p-6 md:p-8 space-y-6 max-w-3xl">
@@ -38,10 +40,10 @@ export default function DashboardPage() {
         </div>
         <button
           onClick={() => { startCrawl.reset(); startCrawl.mutate(); }}
-          disabled={startCrawl.isPending}
+          disabled={isCrawling}
           className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-paper hover:bg-accent-hover disabled:opacity-50 transition-colors min-h-[44px]"
         >
-          {startCrawl.isPending ? "Starting…" : "Run Crawl"}
+          {isCrawling ? "Crawling…" : "Run Crawl"}
         </button>
       </div>
 

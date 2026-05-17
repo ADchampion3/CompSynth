@@ -33,6 +33,8 @@ export function useDashboard() {
   return useQuery({
     queryKey: ["dashboard"],
     queryFn: () => apiGet<DashboardSummaryResponse>("/dashboard"),
+    refetchInterval: (query) =>
+      query.state.data?.latest_crawl_run?.status === "running" ? 3000 : false,
   });
 }
 
