@@ -336,11 +336,18 @@ class DOMExtractor:
         for selector_idx, selectors in enumerate(list_selectors):
             logger.info("[extract_list_items_with_selectors] 使用第 {index} 组选择器 | selectors={selectors}", index=selector_idx + 1, selectors=selectors)
 
-            item_container = selectors.get("item_container", "article")
-            url_selector = selectors.get("url", "a[href]")
-            title_selector = selectors.get("title", "h2")
-            summary_selector = selectors.get("summary", "p")
+            item_container = selectors.get("item_container", "")
+            url_selector = selectors.get("url", "")
+            title_selector = selectors.get("title", "")
+            summary_selector = selectors.get("summary", "")
             time_selector = selectors.get("time", "")
+
+            if not item_container or not url_selector:
+                logger.warning(
+                    "[extract_list_items_with_selectors] 第 {index} 组选择器缺少 item_container 或 url，跳过",
+                    index=selector_idx + 1,
+                )
+                continue
 
             containers = soup.select(item_container)
             logger.info("[extract_list_items_with_selectors] 第 {index} 组选择器找到 {count} 个容器", index=selector_idx + 1, count=len(containers))
