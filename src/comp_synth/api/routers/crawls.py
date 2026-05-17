@@ -24,7 +24,9 @@ async def _run_crawl_background() -> None:
 
 
 @router.post("/crawls")
-def start_crawl(background_tasks: BackgroundTasks):
+def start_crawl(background_tasks: BackgroundTasks, service: CrawlService = Depends(get_crawl_service)):
+    if service.has_running_crawl():
+        raise HTTPException(status_code=409, detail="A crawl is already running.")
     background_tasks.add_task(_run_crawl_background)
     return {"status": "started"}
 

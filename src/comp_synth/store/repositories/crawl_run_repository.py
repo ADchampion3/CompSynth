@@ -64,6 +64,11 @@ class CrawlRunRepository:
         rows = self._session.execute(stmt).scalars().all()
         return [self._to_domain(row) for row in rows]
 
+    def has_running(self) -> bool:
+        """Check whether any crawl run is currently in 'running' status."""
+        stmt = select(CrawlRunModel).where(CrawlRunModel.status == "running").limit(1)
+        return self._session.execute(stmt).scalar_one_or_none() is not None
+
     def list_stale_running(
         self,
         stale_after_minutes: int,

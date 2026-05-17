@@ -21,6 +21,11 @@ class CrawlService:
         if self._crawl_db_path:
             _, self._session_factory = get_engine(self._crawl_db_path, "crawl_state.db")
 
+    def has_running_crawl(self) -> bool:
+        """Check whether a crawl is currently running."""
+        self._require_db()
+        return self._with_run_repository(lambda repo: repo.has_running())
+
     async def run_all(self, initial_state: PipelineState | None = None) -> PipelineState:
         if self._session_factory is None:
             return await self._pipeline_runner(initial_state)

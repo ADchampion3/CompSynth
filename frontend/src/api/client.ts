@@ -23,8 +23,15 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
   const text = await response.text();
   try {
-    const detail = JSON.parse(text) as ErrorDetail;
-    throw new ApiError(detail);
+    const body = JSON.parse(text);
+    if (body && typeof body.detail === "string") {
+      throw new ApiError({
+        problem: body.detail,
+        cause: `HTTP ${response.status}`,
+        fix: "",
+      });
+    }
+    throw new ApiError(body as ErrorDetail);
   } catch (err) {
     if (err instanceof ApiError) throw err;
     throw new ApiError({

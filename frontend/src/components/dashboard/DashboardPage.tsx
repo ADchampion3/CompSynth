@@ -37,13 +37,19 @@ export default function DashboardPage() {
           </p>
         </div>
         <button
-          onClick={() => startCrawl.mutate()}
+          onClick={() => { startCrawl.reset(); startCrawl.mutate(); }}
           disabled={startCrawl.isPending}
           className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-paper hover:bg-accent-hover disabled:opacity-50 transition-colors min-h-[44px]"
         >
           {startCrawl.isPending ? "Starting…" : "Run Crawl"}
         </button>
       </div>
+
+      {startCrawl.isError && (
+        <div className="rounded-md bg-warn-muted p-3 text-sm text-warn font-medium" aria-live="polite">
+          {startCrawl.error.message}
+        </div>
+      )}
 
       {/* Latest crawl */}
       {data?.latest_crawl_run && (

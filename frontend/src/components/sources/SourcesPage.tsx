@@ -12,13 +12,7 @@ import ErrorCard from "../ui/ErrorCard";
 import { SkeletonTable } from "../ui/LoadingSkeleton";
 import EmptyState from "../ui/EmptyState";
 import SourcesTable from "./SourcesTable";
-
-type SourceFormData = {
-  url: string;
-  name: string;
-  source_type: "rss" | "web" | "javascript";
-  javascript: boolean;
-};
+import type { SourceFormData } from "./SourcesTable";
 
 const emptyForm: SourceFormData = {
   url: "",
@@ -35,17 +29,23 @@ export default function SourcesPage() {
   const updateSource = useUpdateSource();
   useDocumentTitle("Sources");
 
-  const [showForm, setShowForm] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [editing, setEditing] = useState<SourceResponse | null>(null);
   const [form, setForm] = useState<SourceFormData>(emptyForm);
 
   const openAdd = () => {
     setEditing(null);
     setForm(emptyForm);
-    setShowForm(true);
+    setShowAddForm(true);
   };
 
   const openEdit = (source: SourceResponse) => {
+    if (editing?.source_key === source.source_key) {
+      // Toggle off if clicking edit on the same source
+      setEditing(null);
+      setForm(emptyForm);
+      return;
+    }
     setEditing(source);
     setForm({
       url: source.url,
@@ -53,39 +53,40 @@ export default function SourcesPage() {
       source_type: source.source_type as "rss" | "web" | "javascript",
       javascript: source.javascript,
     });
-    setShowForm(true);
+    setShowAddForm(false);
   };
 
   const cancel = () => {
-    setShowForm(false);
+    setShowAddForm(false);
     setEditing(null);
     setForm(emptyForm);
   };
 
-  const submit = () => {
+  const submitAdd = () => {
     if (!form.url.trim()) return;
-    if (editing) {
-      updateSource.mutate(
-        {
-          key: editing.source_key,
-          url: form.url.trim(),
-          name: form.name.trim() || null,
-          source_type: form.source_type,
-          javascript: form.javascript,
-        },
-        { onSuccess: cancel },
-      );
-    } else {
-      createSource.mutate(
-        {
-          source_type: form.source_type,
-          url: form.url.trim(),
-          name: form.name.trim() || undefined,
-          javascript: form.javascript,
-        },
-        { onSuccess: cancel },
-      );
-    }
+    createSource.mutate(
+      {
+        source_type: form.source_type,
+        url: form.url.trim(),
+        name: form.name.trim() || undefined,
+        javascript: form.javascript,
+      },
+      { onSuccess: cancel },
+    );
+  };
+
+  const submitEdit = () => {
+    if (!form.url.trim() || !editing) return;
+    updateSource.mutate(
+      {
+        key: editing.source_key,
+        url: form.url.trim(),
+        name: form.name.trim() || null,
+        source_type: form.source_type,
+        javascript: form.javascript,
+      },
+      { onSuccess: cancel },
+    );
   };
 
   const isPending = createSource.isPending || updateSource.isPending;
@@ -144,12 +145,10 @@ export default function SourcesPage() {
         </div>
       )}
 
-      {/* Add/Edit form */}
-      {showForm && (
+      {/* Add form (stays at top — not tied to a row) */}
+      {showAddForm && (
         <div className="mb-6 rounded-md border border-rule bg-paper p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-ink">
-            {editing ? `Edit: ${editing.name ?? editing.source_key}` : "Add source"}
-          </h2>
+          <h2 className="text-sm font-semibold text-ink">Add source</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="text-[0.6875rem] font-semibold uppercase tracking-wider text-ink-4 block mb-1">
@@ -210,15 +209,11 @@ export default function SourcesPage() {
           </div>
           <div className="flex items-center gap-2 pt-1">
             <button
-              onClick={submit}
+              onClick={submitAdd}
               disabled={isPending || !form.url.trim()}
               className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-paper hover:bg-accent-hover disabled:opacity-50 transition-colors min-h-[44px]"
             >
-              {isPending
-                ? "Saving…"
-                : editing
-                  ? "Update"
-                  : "Add"}
+              {isPending ? "Saving…" : "Add"}
             </button>
             <button
               onClick={cancel}
@@ -243,7 +238,16 @@ export default function SourcesPage() {
         />
       )}
       {data && data.length > 0 && (
-        <SourcesTable sources={data} onEdit={openEdit} />
+        <SourcesTable
+          sources={data}
+          onEdit={openEdit}
+          editingKey={editing?.source_key ?? null}
+          form={editing ? form : undefined}
+          onFormChange={editing ? setForm : undefined}
+          onFormSubmit={editing ? submitEdit : undefined}
+          onFormCancel={editing ? cancel : undefined}
+          formPending={editing ? isPending : undefined}
+        />
       )}
     </div>
   );
