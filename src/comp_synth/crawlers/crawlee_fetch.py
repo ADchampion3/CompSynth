@@ -1,5 +1,6 @@
 """Crawlee-based fetch service bridging Crawlee's crawler lifecycle into imperative methods."""
 
+import asyncio
 from urllib.parse import urlparse
 
 from crawlee import service_locator
@@ -9,6 +10,40 @@ from crawlee.storage_clients import MemoryStorageClient
 from loguru import logger
 
 from comp_synth.utils.rate_limiter import DomainRateLimiter
+
+
+def _install_crawlee_exception_handler() -> None:
+    """Suppress harmless Crawlee EventManager cleanup warnings.
+
+    Crawlee's ``LocalEventManager`` uses a 1-second recurring task for system info
+    events.  When a crawler shuts down, the event manager exits its async context
+    and the recurring task is cancelled — but a race window exists where the task
+    can fire *after* ``active`` has been set to ``False`` and *before* the
+    ``CancelledError`` is delivered.  The resulting ``RuntimeError`` is harmless
+    (it does not affect crawl results) but noisy.  Suppress it at the asyncio
+    level so it does not pollute logs.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    default = loop.get_exception_handler()
+
+    def _handler(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+        exc = context.get("exception")
+        if (
+            isinstance(exc, RuntimeError)
+            and "is not active" in str(exc)
+            and "recurring" in context.get("message", "")
+        ):
+            return
+        if default:
+            default(loop, context)
+        else:
+            loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_handler)
 
 
 def _clear_global_storage_cache() -> None:
@@ -41,6 +76,7 @@ class CrawleeFetchService:
             min_interval=settings.crawl_domain_delay
         )
         self._proxy_store = None
+        _install_crawlee_exception_handler()
 
     def _get_proxy_store(self):
         if self._proxy_store is None:
@@ -112,6 +148,7 @@ class CrawleeFetchService:
         )
 
         await crawler.run([url])
+        await asyncio.sleep(0)  # Let Crawlee's recurring task cancellations settle
 
         if not result:
             raise RuntimeError(f"Failed to fetch {url}")
@@ -148,6 +185,7 @@ class CrawleeFetchService:
         )
 
         await crawler.run([url])
+        await asyncio.sleep(0)  # Let Crawlee's recurring task cancellations settle
 
         if not result:
             raise RuntimeError(f"Failed to fetch {url} with browser")

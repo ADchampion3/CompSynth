@@ -34,7 +34,6 @@ def default_pipeline_state() -> PipelineState:
         "sources": [],
         "raw_items": [],
         "new_items": [],
-        "topic_groups": [],
         "report": "",
         "publish_results": {},
         "notification_results": [],
