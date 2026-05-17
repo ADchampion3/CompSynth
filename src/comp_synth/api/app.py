@@ -41,13 +41,11 @@ async def lifespan(app: FastAPI):
     # 启动时将中断的 crawl 记录标记为失败
     try:
         from comp_synth.store.database import get_engine
-        from comp_synth.store.models import resolve_db_path
         from comp_synth.store.repositories.crawl_run_repository import (
             CrawlRunRepository,
         )
 
-        db_path = resolve_db_path(None, "crawl_state.db")
-        _, factory = get_engine(db_path, "crawl_state.db")
+        _, factory = get_engine(settings.crawl_db_path, "crawl_state.db")
         with factory() as session:
             repo = CrawlRunRepository(session)
             count = repo.mark_running_as_failed()
