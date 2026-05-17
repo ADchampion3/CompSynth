@@ -232,13 +232,14 @@ def sources_list(
 @sources_app.command("import")
 def sources_import(
     path: Path | None = typer.Option(None, "--path", help="Subscriptions YAML path."),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Replace all DB sources with YAML (delete DB-only sources)."),
     ctx: typer.Context = typer.Context,
 ) -> None:
     """Import subscriptions YAML into SQLite."""
     from comp_synth.main import sources_command
 
     db_path = _get_db_path(ctx)
-    args = _Namespace(source_command="import", path=path, db_path=db_path)
+    args = _Namespace(source_command="import", path=path, overwrite=overwrite, db_path=db_path)
     result = sources_command(args)
     typer.echo(json.dumps(result, ensure_ascii=False))
 

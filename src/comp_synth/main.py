@@ -135,6 +135,9 @@ def sources_command(args) -> dict:
         source_db_path=args.db_path,
     )
     if args.source_command == "import":
+        if getattr(args, "overwrite", False):
+            imported = service.overwrite_yaml(getattr(args, "path", None))
+            return {"imported": len(imported), "mode": "overwrite"}
         imported = service.import_yaml(getattr(args, "path", None))
         return {"imported": len(imported)}
     if args.source_command == "export":

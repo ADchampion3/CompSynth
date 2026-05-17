@@ -202,38 +202,6 @@ def test_selectors_yaml_roundtrip(db_path):
     assert match[0].selectors == new_selectors
 
 
-def test_import_yaml_preserves_db_only_sources(tmp_path):
-    """YAML import preserves DB sources not in YAML."""
-    subscriptions = tmp_path / "subscriptions.yaml"
-    subscriptions.write_text(
-        """
-sources:
-  - type: rss
-    url: https://keep.test/feed.xml
-    name: KeepMe
-""",
-        encoding="utf-8",
-    )
-    db_path = tmp_path / "sources.db"
-    service = SourceService(subscriptions_path=subscriptions, source_db_path=db_path)
-
-    # First import: creates the RSS source
-    service.import_yaml()
-
-    # Manually add an extra source not in YAML
-    service.create_source(source_type="web", url="https://extra.test/", name="Extra")
-
-    assert len(service.list_sources()) == 2
-
-    # Re-import from YAML: DB-only source is preserved
-    service.import_yaml()
-    sources = service.list_sources()
-    assert len(sources) == 2
-    keys = {s.source_key for s in sources}
-    assert "https://keep.test/feed.xml" in keys
-    assert "https://extra.test/" in keys
-
-
 def test_import_yaml_name_change_no_duplicate(tmp_path):
     """Renaming a source via API then re-importing YAML should not create duplicates."""
     subscriptions = tmp_path / "subscriptions.yaml"
@@ -373,3 +341,135 @@ sources:
     sources = data["sources"]
     assert len(sources) == 1
     assert sources[0]["selectors"] == new_selectors
+
+
+# --- overwrite_yaml ---
+
+
+def test_overwrite_yaml_removes_db_only_sources(tmp_path):
+    """Overwrite import deletes DB sources not present in YAML."""
+    subscriptions = tmp_path / "subscriptions.yaml"
+    subscriptions.write_text(
+        """
+sources:
+  - type: rss
+    url: https://keep.test/feed.xml
+    name: KeepMe
+""",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "sources.db"
+    service = SourceService(subscriptions_path=subscriptions, source_db_path=db_path)
+
+    # First import: creates the RSS source
+    service.import_yaml()
+
+    # Manually add an extra source not in YAML
+    service.create_source(source_type="web", url="https://extra.test/", name="Extra")
+    assert len(service.list_sources()) == 2
+
+    # Overwrite: DB-only source should be removed
+    service.overwrite_yaml()
+    sources = service.list_sources()
+    assert len(sources) == 1
+    assert sources[0].source_key == "https://keep.test/feed.xml"
+
+
+def test_overwrite_yaml_inserts_new_sources(tmp_path):
+    """Overwrite import inserts YAML sources that don't exist in DB."""
+    subscriptions = tmp_path / "subscriptions.yaml"
+    subscriptions.write_text(
+        """
+sources:
+  - type: rss
+    url: https://first.test/feed.xml
+    name: First
+""",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "sources.db"
+    service = SourceService(subscriptions_path=subscriptions, source_db_path=db_path)
+    service.import_yaml()
+
+    # Update YAML to add a second source
+    subscriptions.write_text(
+        """
+sources:
+  - type: rss
+    url: https://first.test/feed.xml
+    name: First
+  - type: web
+    url: https://second.test/
+    name: Second
+""",
+        encoding="utf-8",
+    )
+    service.overwrite_yaml()
+    sources = service.list_sources()
+    assert len(sources) == 2
+    keys = {s.source_key for s in sources}
+    assert keys == {"https://first.test/feed.xml", "https://second.test/"}
+
+
+def test_overwrite_yaml_updates_existing_sources(tmp_path):
+    """Overwrite import updates config fields for existing sources."""
+    subscriptions = tmp_path / "subscriptions.yaml"
+    subscriptions.write_text(
+        """
+sources:
+  - type: rss
+    url: https://example.test/feed.xml
+    name: OldName
+""",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "sources.db"
+    service = SourceService(subscriptions_path=subscriptions, source_db_path=db_path)
+    service.import_yaml()
+
+    # Update YAML name
+    subscriptions.write_text(
+        """
+sources:
+  - type: rss
+    url: https://example.test/feed.xml
+    name: NewName
+""",
+        encoding="utf-8",
+    )
+    service.overwrite_yaml()
+    sources = service.list_sources()
+    assert len(sources) == 1
+    assert sources[0].name == "NewName"
+
+
+def test_import_yaml_preserves_db_only_sources(tmp_path):
+    """Upsert import preserves DB sources not in YAML (regression guard)."""
+    subscriptions = tmp_path / "subscriptions.yaml"
+    subscriptions.write_text(
+        """
+sources:
+  - type: rss
+    url: https://keep.test/feed.xml
+    name: KeepMe
+""",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "sources.db"
+    service = SourceService(subscriptions_path=subscriptions, source_db_path=db_path)
+
+    # First import: creates the RSS source
+    service.import_yaml()
+
+    # Manually add an extra source not in YAML
+    service.create_source(source_type="web", url="https://extra.test/", name="Extra")
+
+    assert len(service.list_sources()) == 2
+
+    # Re-import from YAML: DB-only source is preserved
+    service.import_yaml()
+    sources = service.list_sources()
+    assert len(sources) == 2
+    keys = {s.source_key for s in sources}
+    assert "https://keep.test/feed.xml" in keys
+    assert "https://extra.test/" in keys

@@ -181,9 +181,12 @@ def delete_source(source_key: str, service: SourceService = Depends(get_source_s
 
 
 @router.post("/sources/import-yaml")
-def import_yaml(service: SourceService = Depends(get_source_service)):
+def import_yaml(overwrite: bool = False, service: SourceService = Depends(get_source_service)):
     try:
-        imported = service.import_yaml()
+        if overwrite:
+            imported = service.overwrite_yaml()
+        else:
+            imported = service.import_yaml()
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(
             status_code=400,
@@ -193,7 +196,7 @@ def import_yaml(service: SourceService = Depends(get_source_service)):
                 fix="Check that subscriptions.yaml exists and is valid.",
             ).model_dump(),
         )
-    return {"imported": len(imported)}
+    return {"imported": len(imported), "mode": "overwrite" if overwrite else "upsert"}
 
 
 @router.post("/sources/export-yaml")

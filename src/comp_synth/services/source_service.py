@@ -88,6 +88,17 @@ class SourceService:
         logger.info("YAML → DB 同步完成: {count} 条", count=len(sources))
         return sources
 
+    def overwrite_yaml(self, subscriptions_path: Path | None = None) -> list[SourceConfig]:
+        """Replace all DB sources with YAML contents.
+
+        Destructive: DB-only sources (not in YAML) are deleted.
+        """
+        self._require_db()
+        sources = self._read_yaml_sources(Path(subscriptions_path or self._subscriptions_path))
+        self._with_source_repository(lambda repo: repo.replace_all(sources))
+        logger.info("YAML → DB 覆盖完成: {count} 条", count=len(sources))
+        return sources
+
     def export_yaml(self, output_path: Path | None = None, include_archived: bool = False) -> Path:
         """Export managed database sources to subscriptions-compatible YAML."""
         self._require_db()
