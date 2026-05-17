@@ -112,6 +112,10 @@ async def _summarize_chunk(
                 SystemMessage(content=CONTENT_ANALYST_PROMPT),
                 HumanMessage(content=f"以下是 {len(chunk)} 篇文章，请分析：\n{articles_text}"),
             ])
+            logger.debug(f"[summarize_chunk] attempt={attempt}/{max_retries} result_type={type(result).__name__} result={result}")
+            if result is None:
+                logger.warning("[summarize_chunk] attempt={attempt}/{max}: LLM 返回 None", attempt=attempt, max=max_retries)
+                continue
             return [
                 {
                     "topic": t.topic,
@@ -145,6 +149,9 @@ async def _merge_topics(llm, all_topics: list[dict]) -> list[dict]:
             SystemMessage(content=TOPIC_MERGE_PROMPT),
             HumanMessage(content=f"请合并以下主题分组：\n{topics_json}"),
         ])
+        logger.debug(f"[merge_topics] result_type={type(result).__name__} result={result}")
+        if result is None:
+            raise ValueError("LLM 返回 None")
         return [
             {
                 "topic": t.topic,
