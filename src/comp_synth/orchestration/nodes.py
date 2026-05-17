@@ -1,44 +1,19 @@
-import json
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
-from pydantic import BaseModel
 
 from comp_synth.config import settings
 from comp_synth.llm_provider import registry as _llm_registry
 from comp_synth.orchestration.content_manager import ContentManager
 from comp_synth.orchestration.state import PipelineState
-from comp_synth.prompt import (
-    CONTENT_ANALYST_PROMPT,
-    REPORT_GENERATOR_PROMPT,
-    TOPIC_MERGE_PROMPT,
-)
+from comp_synth.prompt import CONTENT_ANALYST_PROMPT, TOPIC_MERGE_PROMPT
 from comp_synth.report_format_checker import ReportFormatChecker
 from comp_synth.schema.content_item import ContentItem
 from comp_synth.services.source_service import SourceService
 from comp_synth.utils.json_extraction import coerce_text_content
-
-
-class ArticleInTopic(BaseModel):
-    """A single article within a topic group."""
-    title: str
-    summary: str
-    url: str
-
-
-class TopicGroup(BaseModel):
-    """A topic group with summary and related articles."""
-    topic: str
-    summary: str
-    articles: list[ArticleInTopic]
-
-
-class TopicAnalysis(BaseModel):
-    """LLM structured output for topic analysis."""
-    topics: list[TopicGroup]
 
 
 async def fetch_sources(state: PipelineState) -> dict:
@@ -92,177 +67,104 @@ async def deduplicate(state: PipelineState) -> dict:
     return {"new_items": new_items}
 
 
-async def _summarize_chunk(
-    llm,
-    chunk: list[ContentItem],
-    item_map: dict[str, ContentItem],
-) -> list[dict] | None:
-    """Summarize a single chunk of articles via LLM, returning topic groups or None."""
+async def _summarize_chunk(llm, chunk: list[ContentItem]) -> str | None:
+    """Summarize a single chunk of articles via LLM, returning markdown or None."""
     articles_text = "\n".join(
         f"---\n文章 {i}:\n标题: {item.title}\nURL: {item.url}\n"
         f"标签: {', '.join(item.tags)}\n摘要: {item.summary}\n---"
         for i, item in enumerate(chunk, 1)
     )
 
-    structured_llm = llm.with_structured_output(TopicAnalysis)
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            result: TopicAnalysis = await structured_llm.ainvoke([
+            response = await llm.ainvoke([
                 SystemMessage(content=CONTENT_ANALYST_PROMPT),
                 HumanMessage(content=f"以下是 {len(chunk)} 篇文章，请分析：\n{articles_text}"),
             ])
-            logger.debug(f"[summarize_chunk] attempt={attempt}/{max_retries} result_type={type(result).__name__} result={result}")
-            if result is None:
-                logger.warning("[summarize_chunk] attempt={attempt}/{max}: LLM 返回 None", attempt=attempt, max=max_retries)
-                continue
-            return [
-                {
-                    "topic": t.topic,
-                    "summary": t.summary,
-                    "articles": [
-                        {
-                            "title": a.title,
-                            "summary": a.summary,
-                            "url": a.url,
-                            "tags": item_map.get(a.url, ContentItem(source="", url="")).tags,
-                        }
-                        for a in t.articles
-                    ],
-                }
-                for t in result.topics
-            ]
+            text = coerce_text_content(response.content).strip()
+            if text:
+                return text
+            logger.warning(f"[summarize_chunk] attempt={attempt}/{max_retries}: empty response")
         except Exception as e:
-            logger.warning(
-                "[summarize_chunk] attempt={attempt}/{max}: {error}",
-                attempt=attempt, max=max_retries, error=e,
-            )
+            logger.warning(f"[summarize_chunk] attempt={attempt}/{max_retries}: {e}")
     return None
 
 
-async def _merge_topics(llm, all_topics: list[dict]) -> list[dict]:
+async def _merge_topics(llm, markdown_chunks: list[str]) -> str:
     """Merge overlapping topics across chunks via a single LLM call."""
-    topics_json = json.dumps(all_topics, ensure_ascii=False, indent=2)
+    combined = "\n\n---\n\n".join(markdown_chunks)
     try:
-        structured_llm = llm.with_structured_output(TopicAnalysis)
-        result: TopicAnalysis = await structured_llm.ainvoke([
+        response = await llm.ainvoke([
             SystemMessage(content=TOPIC_MERGE_PROMPT),
-            HumanMessage(content=f"请合并以下主题分组：\n{topics_json}"),
+            HumanMessage(content=f"请合并以下主题分组：\n\n{combined}"),
         ])
-        logger.debug(f"[merge_topics] result_type={type(result).__name__} result={result}")
-        if result is None:
-            raise ValueError("LLM 返回 None")
-        return [
-            {
-                "topic": t.topic,
-                "summary": t.summary,
-                "articles": [a.model_dump() for a in t.articles],
-                "related_historical": [],
-            }
-            for t in result.topics
-        ]
+        text = coerce_text_content(response.content).strip()
+        if text:
+            return text
+        logger.warning("[merge_topics] empty response, concatenating")
     except Exception as e:
-        logger.warning("[merge_topics] 合并失败，直接拼接: {error}", error=e)
-        for t in all_topics:
-            t["related_historical"] = []
-        return all_topics
+        logger.warning(f"[merge_topics] merge failed, concatenating: {e}")
+    return "\n\n".join(markdown_chunks)
 
 
 async def summarize(state: PipelineState) -> dict:
-    """使用 LLM 按主题分组并总结内容（支持分片处理）"""
+    """使用 LLM 按主题分组并总结内容，直接输出 Markdown（支持分片处理）"""
     new_items = state.get("new_items", [])
     if not new_items:
-        return {"topic_groups": [], "report": ""}
+        return {"report": ""}
 
     llm = _llm_registry.llm_registry.get(settings.model)
-    item_map = {item.url: item for item in new_items}
     chunk_size = settings.summarize_chunk_size
 
     # Single-chunk fast path
     if len(new_items) <= chunk_size:
-        topic_groups = await _summarize_chunk(llm, new_items, item_map)
-        if topic_groups:
-            for t in topic_groups:
-                t["related_historical"] = []
-            logger.info(f"LLM 分组完成: {len(topic_groups)} 个主题")
-            return {"topic_groups": topic_groups}
-        # Fallback
-        return {"topic_groups": _fallback_groups(new_items)}
+        markdown = await _summarize_chunk(llm, new_items)
+        if markdown:
+            logger.info("LLM 摘要完成")
+            return {"report": markdown}
+        return {"report": _fallback_report(new_items)}
 
     # Multi-chunk path
-    all_chunk_topics: list[dict] = []
+    chunks_md: list[str] = []
     for start in range(0, len(new_items), chunk_size):
         chunk = new_items[start:start + chunk_size]
         logger.info(
             "[summarize] 处理分片 {start}-{end}/{total}",
             start=start, end=start + len(chunk), total=len(new_items),
         )
-        chunk_topics = await _summarize_chunk(llm, chunk, item_map)
-        if chunk_topics:
-            all_chunk_topics.extend(chunk_topics)
+        md = await _summarize_chunk(llm, chunk)
+        if md:
+            chunks_md.append(md)
         else:
-            logger.warning("[summarize] 分片 {start}-{end} 处理失败，使用 fallback", start=start, end=start + len(chunk))
-            all_chunk_topics.extend(_fallback_groups(chunk))
+            logger.warning(f"[summarize] 分片 {start}-{start + len(chunk)} 处理失败，使用 fallback")
+            chunks_md.append(_fallback_report(chunk))
 
-    # Merge cross-chunk topics
-    if len(all_chunk_topics) > 1:
-        logger.info("[summarize] 合并 {count} 个主题分组...", count=len(all_chunk_topics))
-        topic_groups = await _merge_topics(llm, all_chunk_topics)
+    if len(chunks_md) > 1:
+        logger.info(f"[summarize] 合并 {len(chunks_md)} 个分片...")
+        report = await _merge_topics(llm, chunks_md)
     else:
-        topic_groups = all_chunk_topics
-        for t in topic_groups:
-            t.setdefault("related_historical", [])
+        report = chunks_md[0]
 
-    logger.info(f"LLM 分组完成: {len(topic_groups)} 个主题")
-    return {"topic_groups": topic_groups}
+    return {"report": report}
 
 
-def _fallback_groups(items: list[ContentItem]) -> list[dict]:
-    """Build a single fallback topic group from items."""
-    return [{
-        "topic": "综合",
-        "summary": "最近采集的文章汇总。",
-        "articles": [
-            {"title": item.title, "summary": item.summary or "", "url": item.url, "tags": item.tags}
-            for item in items
-        ],
-        "related_historical": [],
-    }]
+def _fallback_report(items: list[ContentItem]) -> str:
+    """Build a fallback markdown report when LLM summarization fails."""
+    lines = ["## 综合", "### 主题概要", "最近采集的文章汇总。", "", "### 文章列表"]
+    for i, item in enumerate(items, 1):
+        title = item.title or "无标题"
+        url = item.url
+        summary = item.summary or "暂无摘要"
+        lines.append(f"{i}. **[{title}]({url})** - {summary}")
+    return "\n".join(lines)
 
 
 async def publish(state: PipelineState) -> dict:
-    """使用 LLM 生成结构化 Markdown 报告并写入文件"""
-    topic_groups = state.get("topic_groups", [])
-    if not topic_groups:
+    """将 Markdown 报告写入文件"""
+    report: str = state.get("report", "")
+    if not report:
         return {"report": "", "publish_results": {"status": "skipped", "reason": "无内容"}}
-
-    llm = _llm_registry.llm_registry.get(settings.model)
-
-    # 构建主题分组文本
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    groups_text = f"## 日期: {date_str}\n\n"
-
-    for i, group in enumerate(topic_groups, 1):
-        groups_text += f"### 主题 {i}: {group['topic']}\n"
-        groups_text += f"#### 主题概要: {group['summary']}\n\n"
-        groups_text += "#### 文章列表:\n"
-        for art in group["articles"]:
-            tags_str = ", ".join(art.get("tags", ["其他"]))
-            groups_text += f"- title: {art['title']}\n  url: {art['url']}\n  tags: {tags_str}\n  summary: {art.get('summary', '')}\n"
-
-        if group.get("related_historical"):
-            groups_text += "\n#### 相关历史内容:\n"
-            for rel in group["related_historical"]:
-                groups_text += f"- title: {rel['title']}\n  url: {rel['url']}\n  summary: {rel.get('summary', '')}\n"
-        groups_text += "\n"
-
-    logger.info(f"正在使用 LLM 生成报告 ({len(topic_groups)} 个主题)...")
-    response = await llm.ainvoke([
-        SystemMessage(content=REPORT_GENERATOR_PROMPT),
-        HumanMessage(content=f"请根据以下主题分组信息生成报告：\n\n{groups_text}"),
-    ])
-
-    report = coerce_text_content(response.content)
 
     # 格式检查（警告但不阻断）
     checker = ReportFormatChecker(report)

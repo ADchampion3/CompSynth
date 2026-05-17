@@ -4,7 +4,14 @@ from types import SimpleNamespace
 
 from comp_synth.orchestration import nodes as nodes_module
 from comp_synth.orchestration import pipeline as pipeline_module
-from comp_synth.orchestration.nodes import fetch_sources, use_last_digest
+from comp_synth.orchestration.nodes import (
+    _fallback_report,
+    _merge_topics,
+    _summarize_chunk,
+    fetch_sources,
+    publish,
+    use_last_digest,
+)
 from comp_synth.orchestration.pipeline import route_after_deduplicate, run_pipeline
 from comp_synth.schema.content_item import ContentItem
 
@@ -18,6 +25,7 @@ def test_route_after_deduplicate_uses_new_items_not_raw_items():
 def test_run_pipeline_summarizes_and_publishes_new_items(monkeypatch):
     calls = []
     item = ContentItem(source="web", url="https://x.test")
+    md_report = "## Test Topic\n### 主题概要\nTest summary\n\n### 文章列表\n1. **[title](https://x.test)** - desc"
 
     async def fetch(state):
         calls.append("fetch_sources")
@@ -31,10 +39,11 @@ def test_run_pipeline_summarizes_and_publishes_new_items(monkeypatch):
     async def summarize_node(state):
         calls.append("summarize")
         assert state["new_items"] == [item]
-        return {"topic_groups": [{"topic": "T", "summary": "S", "articles": [], "related_historical": []}]}
+        return {"report": md_report}
 
     async def publish_node(state):
         calls.append("publish")
+        assert state["report"] == md_report
         return {"publish_results": {"status": "success"}}
 
     monkeypatch.setattr(pipeline_module, "fetch_sources", fetch)
@@ -48,6 +57,7 @@ def test_run_pipeline_summarizes_and_publishes_new_items(monkeypatch):
     assert calls == ["fetch_sources", "deduplicate", "summarize", "publish"]
     assert result["raw_items"] == [item]
     assert result["new_items"] == [item]
+    assert result["report"] == md_report
     assert result["publish_results"]["status"] == "success"
 
 
@@ -171,3 +181,144 @@ def test_use_last_digest_returns_newest_digest(tmp_path, monkeypatch):
     assert result["report"] == "newer"
     assert result["publish_results"]["status"] == "reused"
     assert Path(result["publish_results"]["path"]) == newer
+
+
+# ------------------------------------------------------------------
+# _summarize_chunk tests
+# ------------------------------------------------------------------
+
+def test_summarize_chunk_returns_markdown():
+    md = "## AI技术\n### 主题概要\nAI summary\n\n### 文章列表\n1. **[t](u)** - s"
+
+    class FakeLLM:
+        async def ainvoke(self, messages):
+            return SimpleNamespace(content=md)
+
+    chunk = [ContentItem(source="web", url="https://x.test", title="t", summary="s")]
+    result = asyncio.run(_summarize_chunk(FakeLLM(), chunk))
+
+    assert result == md
+
+
+def test_summarize_chunk_returns_none_on_empty_response():
+    class FakeLLM:
+        async def ainvoke(self, messages):
+            return SimpleNamespace(content="")
+
+    chunk = [ContentItem(source="web", url="https://x.test")]
+    result = asyncio.run(_summarize_chunk(FakeLLM(), chunk))
+
+    assert result is None
+
+
+def test_summarize_chunk_returns_none_on_exception():
+    class FakeLLM:
+        async def ainvoke(self, messages):
+            raise RuntimeError("LLM error")
+
+    chunk = [ContentItem(source="web", url="https://x.test")]
+    result = asyncio.run(_summarize_chunk(FakeLLM(), chunk))
+
+    assert result is None
+
+
+def test_summarize_chunk_handles_list_content():
+    md = "## Topic\n### 主题概要\nSummary\n\n### 文章列表\n1. **[t](u)** - s"
+
+    class FakeLLM:
+        async def ainvoke(self, messages):
+            return SimpleNamespace(content=[{"type": "text", "text": md}])
+
+    chunk = [ContentItem(source="web", url="https://x.test", title="t", summary="s")]
+    result = asyncio.run(_summarize_chunk(FakeLLM(), chunk))
+
+    assert result == md
+
+
+# ------------------------------------------------------------------
+# _merge_topics tests
+# ------------------------------------------------------------------
+
+def test_merge_topics_returns_merged_markdown():
+    merged = "## Merged\n### 主题概要\nMerged summary\n\n### 文章列表\n1. **[t](u)** - s"
+
+    class FakeLLM:
+        async def ainvoke(self, messages):
+            return SimpleNamespace(content=merged)
+
+    chunks = [
+        "## AI技术\n### 主题概要\nAI\n\n### 文章列表\n1. **[t1](u1)** - s1",
+        "## AI技术\n### 主题概要\nAI2\n\n### 文章列表\n1. **[t2](u2)** - s2",
+    ]
+    result = asyncio.run(_merge_topics(FakeLLM(), chunks))
+
+    assert result == merged
+
+
+def test_merge_topics_falls_back_to_concatenation_on_error():
+    class FakeLLM:
+        async def ainvoke(self, messages):
+            raise RuntimeError("LLM error")
+
+    chunks = ["chunk1", "chunk2"]
+    result = asyncio.run(_merge_topics(FakeLLM(), chunks))
+
+    assert result == "chunk1\n\nchunk2"
+
+
+def test_merge_topics_falls_back_on_empty_response():
+    class FakeLLM:
+        async def ainvoke(self, messages):
+            return SimpleNamespace(content="")
+
+    chunks = ["chunk1", "chunk2"]
+    result = asyncio.run(_merge_topics(FakeLLM(), chunks))
+
+    assert result == "chunk1\n\nchunk2"
+
+
+# ------------------------------------------------------------------
+# _fallback_report tests
+# ------------------------------------------------------------------
+
+def test_fallback_report_produces_valid_markdown():
+    items = [
+        ContentItem(source="web", url="https://a.test", title="Article A", summary="Summary A"),
+        ContentItem(source="web", url="https://b.test", title="Article B", summary="Summary B"),
+    ]
+    report = _fallback_report(items)
+
+    assert "## 综合" in report
+    assert "### 文章列表" in report
+    assert "**[Article A](https://a.test)**" in report
+    assert "**[Article B](https://b.test)**" in report
+
+
+def test_fallback_report_handles_empty_fields():
+    items = [ContentItem(source="web", url="https://x.test")]
+    report = _fallback_report(items)
+
+    assert "**[无标题](https://x.test)**" in report
+    assert "暂无摘要" in report
+
+
+# ------------------------------------------------------------------
+# publish tests
+# ------------------------------------------------------------------
+
+def test_publish_writes_report_to_file(tmp_path, monkeypatch):
+    monkeypatch.setattr("comp_synth.config.settings.output_dir", tmp_path)
+    report = "## Topic\n### 主题概要\nSummary\n\n### 文章列表\n1. **[t](u)** - s"
+
+    result = asyncio.run(publish({"report": report}))
+
+    assert result["publish_results"]["status"] == "success"
+    written = Path(result["publish_results"]["path"]).read_text(encoding="utf-8")
+    assert written == report
+
+
+def test_publish_skips_when_no_report():
+    result = asyncio.run(publish({"report": ""}))
+
+    assert result["publish_results"]["status"] == "skipped"
+    assert result["report"] == ""
