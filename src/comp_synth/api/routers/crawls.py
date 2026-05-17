@@ -17,6 +17,9 @@ async def _run_crawl_background() -> None:
 
     logger = logging.getLogger(__name__)
     service = get_crawl_service()
+    if service.has_running_crawl():
+        logger.info("Skipping background crawl — another crawl is already running")
+        return
     try:
         await service.run_all()
     except Exception:

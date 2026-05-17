@@ -31,7 +31,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
         fix: "",
       });
     }
-    throw new ApiError(body as ErrorDetail);
+    const detail = body as ErrorDetail;
+    throw new ApiError({
+      problem: detail.problem ?? `Request failed (${response.status})`,
+      cause: detail.cause ?? response.statusText,
+      fix: detail.fix ?? "",
+    });
   } catch (err) {
     if (err instanceof ApiError) throw err;
     throw new ApiError({
