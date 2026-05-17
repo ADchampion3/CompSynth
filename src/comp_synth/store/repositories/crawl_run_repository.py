@@ -69,6 +69,19 @@ class CrawlRunRepository:
         stmt = select(CrawlRunModel).where(CrawlRunModel.status == "running").limit(1)
         return self._session.execute(stmt).scalar_one_or_none() is not None
 
+    def mark_running_as_failed(self, error_text: str = "Server restarted", now: datetime | None = None) -> int:
+        """Mark all 'running' crawl runs as 'failed'. Returns count of updated rows."""
+        now = now or datetime.now()
+        stmt = select(CrawlRunModel).where(CrawlRunModel.status == "running")
+        rows = self._session.execute(stmt).scalars().all()
+        for row in rows:
+            row.status = "failed"
+            row.finished_at = now
+            row.heartbeat_at = now
+            row.error_text = error_text
+            row.errors = [error_text]
+        return len(rows)
+
     def list_stale_running(
         self,
         stale_after_minutes: int,
