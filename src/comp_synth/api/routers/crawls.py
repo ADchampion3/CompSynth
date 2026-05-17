@@ -1,5 +1,7 @@
 """Crawl runs API router."""
 
+import asyncio
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from comp_synth.api.deps import get_crawl_service
@@ -9,6 +11,8 @@ from comp_synth.services.crawl_service import CrawlService
 
 router = APIRouter(tags=["crawls"])
 
+_crawl_lock = asyncio.Lock()
+
 
 async def _run_crawl_background() -> None:
     import logging
@@ -16,19 +20,23 @@ async def _run_crawl_background() -> None:
     from comp_synth.api.deps import get_crawl_service
 
     logger = logging.getLogger(__name__)
-    service = get_crawl_service()
-    if service.has_running_crawl():
+    if _crawl_lock.locked():
         logger.info("Skipping background crawl — another crawl is already running")
         return
-    try:
-        await service.run_all()
-    except Exception:
-        logger.exception("Background crawl failed")
+    async with _crawl_lock:
+        service = get_crawl_service()
+        if service.has_running_crawl():
+            logger.info("Skipping background crawl — stale running record found")
+            return
+        try:
+            await service.run_all()
+        except Exception:
+            logger.exception("Background crawl failed")
 
 
 @router.post("/crawls")
 def start_crawl(background_tasks: BackgroundTasks, service: CrawlService = Depends(get_crawl_service)):
-    if service.has_running_crawl():
+    if _crawl_lock.locked() or service.has_running_crawl():
         raise HTTPException(status_code=409, detail="A crawl is already running.")
     background_tasks.add_task(_run_crawl_background)
     return {"status": "started"}
