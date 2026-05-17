@@ -12,6 +12,7 @@ TAGS_COLUMN_MIGRATION_ID = "0002_add_tags_column"
 BACKFILL_MIGRATION_ID = "0003_backfill_source_key_and_tags"
 SETTINGS_TABLE_MIGRATION_ID = "0004_create_settings_table"
 SOURCE_KEY_COLUMN_MIGRATION_ID = "0005_add_source_key_column"
+DOMAIN_PROXY_TABLE_MIGRATION_ID = "0006_create_domain_proxy_state_table"
 
 _metadata = MetaData()
 
@@ -139,3 +140,26 @@ def bootstrap_database(engine: Engine) -> None:
         _run_0003_backfill_source_key_and_tags(conn)
         _run_0004_create_settings_table(conn)
         _run_0005_add_source_key_column(conn)
+        _run_0006_create_domain_proxy_state_table(conn)
+
+
+def _run_0006_create_domain_proxy_state_table(conn) -> None:
+    if _migration_applied(conn, DOMAIN_PROXY_TABLE_MIGRATION_ID):
+        return
+    conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS domain_proxy_state ("
+        "  domain VARCHAR NOT NULL PRIMARY KEY,"
+        "  needs_proxy INTEGER NOT NULL DEFAULT 0,"
+        "  failure_count INTEGER NOT NULL DEFAULT 0,"
+        "  last_failure_at DATETIME,"
+        "  last_failure_error TEXT,"
+        "  detected_at DATETIME,"
+        "  updated_at DATETIME NOT NULL DEFAULT (datetime('now'))"
+        ")"
+    ))
+    conn.execute(
+        insert(schema_migrations).values(
+            migration_id=DOMAIN_PROXY_TABLE_MIGRATION_ID,
+            applied_at=datetime.now(),
+        )
+    )

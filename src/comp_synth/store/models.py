@@ -152,3 +152,17 @@ class SourceCrawlOutcomeModel(Base):
     new_item_count: Mapped[int] = mapped_column(Integer, nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     crawled_at: Mapped[datetime] = mapped_column(DateTime, index=True, nullable=False)
+
+
+class DomainProxyStateModel(Base):
+    """Per-domain proxy requirement state."""
+
+    __tablename__ = "domain_proxy_state"
+
+    domain: Mapped[str] = mapped_column(String, primary_key=True)
+    needs_proxy: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_failure_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_failure_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    detected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

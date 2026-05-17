@@ -101,7 +101,18 @@ class RSSCrawler(BaseCrawler):
         """抓取 RSS 源，返回原始条目列表（不含去重和持久化，由 ContentManager 处理）"""
         feed_url = source_config["url"]
         logger.info("[RSS] 开始抓取 feed: {url}", url=feed_url)
-        feed = feedparser.parse(feed_url)
+
+        try:
+            raw_xml = await self._fetch_html(feed_url)
+            feed = feedparser.parse(raw_xml)
+        except Exception as e:
+            from comp_synth.config import settings
+
+            if settings.proxy_enabled and settings.proxy_url:
+                logger.warning("[RSS] Feed fetch via Crawlee+proxy failed: {e}", e=e)
+            else:
+                logger.debug("[RSS] Feed fetch via Crawlee failed, trying direct: {e}", e=e)
+            feed = feedparser.parse(feed_url)
 
         items = []
         for entry in feed.entries:

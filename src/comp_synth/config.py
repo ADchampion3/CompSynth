@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     selector_zero_refresh_lookback_days: int = 7
     selector_zero_refresh_cooldown_hours: int = 24
 
+    # 代理
+    proxy_url: str = ""
+    proxy_enabled: bool = False
+    proxy_auto_detect: bool = True
+
     # 订阅与输出
     subscriptions_path: Path = Path("./subscriptions.yaml")
     output_dir: Path = Path("./output")
