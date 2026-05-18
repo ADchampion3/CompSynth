@@ -22,36 +22,32 @@ def test_version_flag():
 # ── --verbose / --quiet / --cron flags ──────────────────────────────────────
 
 def test_verbose_flag_sets_debug_level():
-    with patch("comp_synth.cli.app.logger") as mock_logger:
+    with patch("comp_synth.cli.app.configure") as mock_configure:
         result = runner.invoke(app, ["--verbose", "config", "show"])
         assert result.exit_code == 0
-        calls = mock_logger.add.call_args_list
-        assert any(c.kwargs.get("level") == "DEBUG" for c in calls)
+        mock_configure.assert_called_with(console_level="DEBUG")
 
 
 def test_quiet_flag_sets_warning_level():
-    with patch("comp_synth.cli.app.logger") as mock_logger:
+    with patch("comp_synth.cli.app.configure") as mock_configure:
         result = runner.invoke(app, ["--quiet", "config", "show"])
         assert result.exit_code == 0
-        calls = mock_logger.add.call_args_list
-        assert any(c.kwargs.get("level") == "WARNING" for c in calls)
+        mock_configure.assert_called_with(console_level="WARNING")
 
 
 def test_cron_flag_sets_warning_level():
-    with patch("comp_synth.cli.app.logger") as mock_logger:
+    with patch("comp_synth.cli.app.configure") as mock_configure:
         result = runner.invoke(app, ["--cron", "config", "show"])
         assert result.exit_code == 0
-        calls = mock_logger.add.call_args_list
-        assert any(c.kwargs.get("level") == "WARNING" for c in calls)
+        mock_configure.assert_called_with(console_level="WARNING")
 
 
 def test_cron_env_var_sets_warning_level(monkeypatch):
     monkeypatch.setenv("COMPSYNTH_CRON", "1")
-    with patch("comp_synth.cli.app.logger") as mock_logger:
+    with patch("comp_synth.cli.app.configure") as mock_configure:
         result = runner.invoke(app, ["config", "show"])
         assert result.exit_code == 0
-        calls = mock_logger.add.call_args_list
-        assert any(c.kwargs.get("level") == "WARNING" for c in calls)
+        mock_configure.assert_called_with(console_level="WARNING")
 
 
 # ── config show ──────────────────────────────────────────────────────────────

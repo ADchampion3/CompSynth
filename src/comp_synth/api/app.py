@@ -23,7 +23,9 @@ from comp_synth.api.schemas import ErrorDetail
 async def lifespan(app: FastAPI):
     from comp_synth.api.deps import _init_db, get_settings
     from comp_synth.services.source_service import SourceService
+    from comp_synth.utils.logging import configure, logger
 
+    configure(console_level="INFO")
     settings = get_settings()
     _init_db(settings)
 
@@ -35,7 +37,6 @@ async def lifespan(app: FastAPI):
         )
         svc.import_yaml()
     except Exception as exc:
-        from loguru import logger
         logger.warning("启动时 YAML → DB 同步失败: {error}", error=exc)
 
     # 启动时将中断的 crawl 记录标记为失败
@@ -51,10 +52,8 @@ async def lifespan(app: FastAPI):
             count = repo.mark_running_as_failed()
             session.commit()
             if count > 0:
-                from loguru import logger
                 logger.info("已将 {count} 条中断的 crawl 记录标记为失败", count=count)
     except Exception as exc:
-        from loguru import logger
         logger.warning("清理中断 crawl 记录失败: {error}", error=exc)
 
     yield

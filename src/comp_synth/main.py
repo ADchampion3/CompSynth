@@ -62,24 +62,24 @@ async def run(db_path: Path | None = None) -> dict:
     )
     try:
         imported = source_service.import_yaml()
-        logger.info(f"Subscriptions synced: {len(imported)} sources")
+        logger.info("Subscriptions synced: {count} sources", count=len(imported))
     except Exception as exc:
-        logger.warning(f"Subscription sync skipped: {exc}")
+        logger.warning("Subscription sync skipped: {error}", error=exc)
 
     result = await CrawlService(crawl_db_path=db_path).run_all()
 
     if result.get("errors"):
         for err in result["errors"]:
-            logger.warning(f"Pipeline error: {err}")
+            logger.warning("Pipeline error: {error}", error=err)
 
     status = result.get("publish_results", {}).get("status", "unknown")
     if status == "skipped":
         logger.info("No new content; exiting.")
     elif status == "success":
         path = result["publish_results"].get("path", "")
-        logger.info(f"Digest written: {path}")
+        logger.info("Digest written: {path}", path=path)
     else:
-        logger.warning(f"Pipeline finished with status: {status}")
+        logger.warning("Pipeline finished with status: {status}", status=status)
 
     return result
 

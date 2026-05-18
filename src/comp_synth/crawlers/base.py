@@ -26,11 +26,11 @@ class BaseCrawler(ABC):
 
     async def _fetch_html_with_browser(self, url: str, wait_time: float = 2.0) -> str:
         """使用 Playwright (via Crawlee) 获取渲染后的 HTML（支持动态网站）"""
-        logger.info("Browser GET {url} (wait={wait}s)", url=url, wait=wait_time)
+        logger.debug("Browser GET {url} (wait={wait}s)", url=url, wait=wait_time)
         start = time.monotonic()
         html = await CrawleeFetchService.instance().fetch_html_with_browser(url, wait_time)
         elapsed = time.monotonic() - start
-        logger.info("Browser GET {url} → {size} bytes ({elapsed:.1f}s)", url=url, size=len(html), elapsed=elapsed)
+        logger.debug("Browser GET {url} → {size} bytes ({elapsed:.1f}s)", url=url, size=len(html), elapsed=elapsed)
         return html
 
     @abstractmethod

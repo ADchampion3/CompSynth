@@ -70,7 +70,7 @@ class AdaptiveWebCrawler(BaseCrawler):
                 "summary": summary_text,
             }
         except Exception as e:
-            logger.warning(f"readability 提取失败: {e}")
+            logger.warning("readability 提取失败: {error}", error=e)
             return {"title": "", "content": "", "summary": ""}
 
 
@@ -181,18 +181,18 @@ class AdaptiveWebCrawler(BaseCrawler):
         3. LLM 学习并提取
         4. 启发式后备方案
         """
-        logger.info("[_extract_list_items] 开始提取列表项 | site={site_name}", site_name=site_name)
+        logger.debug("[_extract_list_items] 开始提取列表项 | site={site_name}", site_name=site_name)
 
-        logger.info("[step_1] user_selector | 尝试用户配置的 selectors")
+        logger.debug("[step_1] user_selector | 尝试用户配置的 selectors")
         if user_selectors:
-            logger.info("[step_1] user_selectors={selectors}", selectors=user_selectors)
+            logger.debug("[step_1] user_selectors={selectors}", selectors=user_selectors)
             items = self._dom_extractor.extract_list_items_with_selectors(html, user_selectors)
             success = items and self._has_valid_data(items)
-            logger.info("[step_1] result={result} | extracted_count={count}", result="成功" if success else "失败", count=len(items) if items else 0)
+            logger.debug("[step_1] result={result} | extracted_count={count}", result="成功" if success else "失败", count=len(items) if items else 0)
             if success:
                 return self._normalize_and_dedupe(items, base_url)
 
-        logger.info("[step_2] db_selector | 尝试 DB 中已存储的 selectors")
+        logger.debug("[step_2] db_selector | 尝试 DB 中已存储的 selectors")
         schema = self._schema_store.get(site_name)
         should_refresh_stale_selectors = (
             bool(schema and schema.selectors)
@@ -200,20 +200,20 @@ class AdaptiveWebCrawler(BaseCrawler):
             and self._source_outcome_store.should_refresh_selectors(source_key, source_type)
         )
         if schema and schema.selectors and not should_refresh_stale_selectors:
-            logger.info("[step_2] db_selectors={selectors}", selectors=schema.selectors)
+            logger.debug("[step_2] db_selectors={selectors}", selectors=schema.selectors)
             items = self._dom_extractor.extract_list_items_with_selectors(html, schema.selectors)
             success = items and self._has_valid_data(items)
-            logger.info("[step_2] result={result} | extracted_count={count}", result="成功" if success else "失败", count=len(items) if items else 0)
+            logger.debug("[step_2] result={result} | extracted_count={count}", result="成功" if success else "失败", count=len(items) if items else 0)
             if success:
                 return self._normalize_and_dedupe(items, base_url)
 
-        logger.info("[step_3] llm_learning | 尝试 LLM 学习并提取")
+        logger.debug("[step_3] llm_learning | 尝试 LLM 学习并提取")
         can_refresh_stale = (
             should_refresh_stale_selectors
             and self._schema_store.can_refresh_stale_selectors(site_name)
         )
         if self._schema_store.can_use_llm(site_name) or can_refresh_stale:
-            logger.info("[step_3] site={site_name} | can_use_llm=True", site_name=site_name)
+            logger.debug("[step_3] site={site_name} | can_use_llm=True", site_name=site_name)
             llm_items = await self._learn_list_item_schema(
                 html,
                 site_name,
@@ -221,16 +221,16 @@ class AdaptiveWebCrawler(BaseCrawler):
                 stale_refresh=can_refresh_stale,
             )
             success = bool(llm_items)
-            logger.info("[step_3] result={result} | extracted_count={count}", result="成功" if success else "失败", count=len(llm_items) if llm_items else 0)
+            logger.debug("[step_3] result={result} | extracted_count={count}", result="成功" if success else "失败", count=len(llm_items) if llm_items else 0)
             if llm_items:
                 heuristic_items = await self._extract_list_items_heuristic(html, base_url)
                 if len(heuristic_items) > len(llm_items):
                     return self._normalize_and_dedupe(heuristic_items, base_url)
                 return self._normalize_and_dedupe(llm_items, base_url)
 
-        logger.info("[step_4] heuristic | 尝试启发式方法提取")
+        logger.debug("[step_4] heuristic | 尝试启发式方法提取")
         heuristic_items = await self._extract_list_items_heuristic(html, base_url)
-        logger.info("[step_4] extracted_count={count}", count=len(heuristic_items))
+        logger.debug("[step_4] extracted_count={count}", count=len(heuristic_items))
         return self._normalize_and_dedupe(heuristic_items, base_url)
 
     async def _learn_list_item_schema(
@@ -246,11 +246,11 @@ class AdaptiveWebCrawler(BaseCrawler):
         1. LLM 生成 CSS selectors（只做结构分析）
         2. 用 CSS selectors 提取所有匹配元素（确定性提取，不会遗漏）
         """
-        logger.info("[_learn_list_item_schema] 开始 LLM 学习 | site={site_name}", site_name=site_name)
+        logger.debug("[_learn_list_item_schema] 开始 LLM 学习 | site={site_name}", site_name=site_name)
         try:
-            logger.info("[_learn_list_item_schema] 步骤1: LLM 生成 CSS selectors")
+            logger.debug("[_learn_list_item_schema] 步骤1: LLM 生成 CSS selectors")
             list_selectors = await self._dom_extractor.generate_list_item_selectors(html)
-            logger.info("[_learn_list_item_schema] selectors 生成完成 | selectors={selectors}", selectors=list_selectors)
+            logger.debug("[_learn_list_item_schema] selectors 生成完成 | selectors={selectors}", selectors=list_selectors)
 
             if not list_selectors:
                 logger.warning("[_learn_list_item_schema] LLM 未生成有效 selectors")
@@ -260,9 +260,9 @@ class AdaptiveWebCrawler(BaseCrawler):
                     self._schema_store.mark_llm_called(site_name)
                 return []
 
-            logger.info("[_learn_list_item_schema] 步骤2: 使用 CSS selectors 提取所有条目")
+            logger.debug("[_learn_list_item_schema] 步骤2: 使用 CSS selectors 提取所有条目")
             items = self._dom_extractor.extract_list_items_with_selectors(html, list_selectors)
-            logger.info("[_learn_list_item_schema] CSS 提取完成 | extracted_count={count}", count=len(items))
+            logger.debug("[_learn_list_item_schema] CSS 提取完成 | extracted_count={count}", count=len(items))
             if not self._has_valid_data(items):
                 logger.warning("[_learn_list_item_schema] selectors 提取结果无效，跳过保存")
                 if stale_refresh:
@@ -273,7 +273,7 @@ class AdaptiveWebCrawler(BaseCrawler):
 
             selector = SiteSchema(site_name=site_name, site_url=base_url, selectors=list_selectors, last_llm_call=datetime.now())
             self._schema_store.save(selector)
-            logger.info("[_learn_list_item_schema] selectors 已保存 | selectors={selectors}", selectors=list_selectors)
+            logger.debug("[_learn_list_item_schema] selectors 已保存 | selectors={selectors}", selectors=list_selectors)
 
             if stale_refresh:
                 self._schema_store.mark_stale_refresh_called(site_name)
@@ -352,7 +352,7 @@ class AdaptiveWebCrawler(BaseCrawler):
         """
         # 去重检查
         if self._tracker.is_crawled("web", url):
-            logger.info(f"Web: {url} 已爬取, 跳过")
+            logger.debug("Web: {url} 已爬取, 跳过", url=url)
             return None
         try:
             html = await self._fetch_html(url)
@@ -368,7 +368,7 @@ class AdaptiveWebCrawler(BaseCrawler):
                 )
                 return item
         except Exception as e:
-            logger.warning(f"详情页爬取失败 {url}: {e}")
+            logger.warning("详情页爬取失败 {url}: {error}", url=url, error=e)
         return None
 
     async def fetch_detail(self, item: WebPageItem, site_name: str) -> WebPageItem | None:
@@ -405,13 +405,13 @@ class AdaptiveWebCrawler(BaseCrawler):
         # 阈值过滤
         if items:
             items = self._filter_items_by_container(items)
-            logger.info("[crawl_list_page] 阈值过滤后剩余 {count} 个条目", count=len(items))
+            logger.debug("[crawl_list_page] 阈值过滤后剩余 {count} 个条目", count=len(items))
 
         results = []
 
         for i, item_dict in enumerate(items):
             title_preview = item_dict.get('title', '')[:30]
-            logger.info("[crawl_list_page] item {index}/{total} | title={title}... | url={url}", index=i+1, total=len(items), title=title_preview, url=item_dict['url'])
+            logger.debug("[crawl_list_page] item {index}/{total} | title={title}... | url={url}", index=i+1, total=len(items), title=title_preview, url=item_dict['url'])
 
             item_summary = item_dict.get("summary", "")
 
@@ -435,7 +435,7 @@ class AdaptiveWebCrawler(BaseCrawler):
         raw_html_size = len(html)
         site_name = self._detect_site(url)
 
-        logger.info("[crawl_detail_page] 开始爬取 | url={url} | html_size={size}", url=url, size=raw_html_size)
+        logger.debug("[crawl_detail_page] 开始爬取 | url={url} | html_size={size}", url=url, size=raw_html_size)
 
         readability_result = await self._extract_with_readability(html)
         content = readability_result.get("content", "")
@@ -443,7 +443,7 @@ class AdaptiveWebCrawler(BaseCrawler):
         summary = readability_result.get("summary", "")
 
         title_preview = title[:30] if title else "N/A"
-        logger.info("[crawl_detail_page] result | title={title}... | content_length={length}", title=title_preview, length=len(content))
+        logger.debug("[crawl_detail_page] result | title={title}... | content_length={length}", title=title_preview, length=len(content))
 
         item = self._build_item(
             url=url,
@@ -452,7 +452,7 @@ class AdaptiveWebCrawler(BaseCrawler):
             content=content,
             site_name=site_name,
         )
-        logger.info("[crawl_detail_page] item | title={title}... | summary_length={length}", title=item.title[:30], length=len(item.summary))
+        logger.debug("[crawl_detail_page] item | title={title}... | summary_length={length}", title=item.title[:30], length=len(item.summary))
         return [item]
 
 
@@ -494,12 +494,12 @@ class AdaptiveWebCrawler(BaseCrawler):
         try:
             html = await self._fetch_html(url)
         except Exception as e:
-            logger.error(f"获取网页失败 {url}: {e}")
+            logger.error("获取网页失败 {url}: {error}", url=url, error=e)
             return []
 
         # 检测页面类型
         if self._is_list_page(html):
-            logger.info(f"检测到列表页: {url}")
+            logger.debug("检测到列表页: {url}", url=url)
             return await self._crawl_list_page(
                 html,
                 url,

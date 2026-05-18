@@ -230,7 +230,7 @@ class DOMExtractor:
 
         try:
             structured_llm = self.llm.with_structured_output(ContainerFragments)
-            logger.info("[identify_container_fragments] Stage 1: 识别文章容器片段")
+            logger.debug("[identify_container_fragments] Stage 1: 识别文章容器片段")
             result: ContainerFragments = await structured_llm.ainvoke([
                 SystemMessage(content=DOM_PROMPTS["CONTAINER_DISCOVERY"]),
                 HumanMessage(content=f"请分析以下列表页 HTML，识别文章容器并返回每个容器类型的 HTML 片段：\n\n{html_preview}"),
@@ -244,7 +244,7 @@ class DOMExtractor:
         """Stage 2: 从容器 HTML 片段生成 item_selectors"""
         try:
             structured_llm = self.llm.with_structured_output(ListItemSelectors)
-            logger.info("[generate_selectors_from_fragment] Stage 2: 从容器片段生成 selectors | container={container}", container=fragment.container_selector)
+            logger.debug("[generate_selectors_from_fragment] Stage 2: 从容器片段生成 selectors | container={container}", container=fragment.container_selector)
             result: ListItemSelectors = await structured_llm.ainvoke([
                 SystemMessage(content=DOM_PROMPTS["LIST_ITEM_SELECTOR_FROM_FRAGMENT"]),
                 HumanMessage(content=f"请分析以下文章容器 HTML 片段，生成 CSS selectors：\n\n{fragment.fragment_html}"),
@@ -305,7 +305,7 @@ class DOMExtractor:
 
         try:
             structured_llm = self.llm.with_structured_output(ListItemSelectors)
-            logger.info("[_generate_selectors_legacy] 使用原始方案生成 CSS selectors")
+            logger.debug("[_generate_selectors_legacy] 使用原始方案生成 CSS selectors")
             result: ListItemSelectors = await structured_llm.ainvoke([
                 SystemMessage(content=DOM_PROMPTS["LIST_ITEM_SELECTOR"]),
                 HumanMessage(content=f"请分析以下列表页 HTML 结构并生成 selectors：\n\n{html_preview}"),
@@ -328,13 +328,13 @@ class DOMExtractor:
         Returns:
             提取到的文章条目列表
         """
-        logger.info("[extract_list_items_with_selectors] html_size={size} | selectors_count={count}", size=len(html), count=len(list_selectors))
+        logger.debug("[extract_list_items_with_selectors] html_size={size} | selectors_count={count}", size=len(html), count=len(list_selectors))
         soup = BeautifulSoup(html, "html.parser")
         all_items = []
         seen_urls: set[str] = set()
 
         for selector_idx, selectors in enumerate(list_selectors):
-            logger.info("[extract_list_items_with_selectors] 使用第 {index} 组选择器 | selectors={selectors}", index=selector_idx + 1, selectors=selectors)
+            logger.debug("[extract_list_items_with_selectors] 使用第 {index} 组选择器 | selectors={selectors}", index=selector_idx + 1, selectors=selectors)
 
             item_container = selectors.get("item_container", "")
             url_selector = selectors.get("url", "")
@@ -350,7 +350,7 @@ class DOMExtractor:
                 continue
 
             containers = soup.select(item_container)
-            logger.info("[extract_list_items_with_selectors] 第 {index} 组选择器找到 {count} 个容器", index=selector_idx + 1, count=len(containers))
+            logger.debug("[extract_list_items_with_selectors] 第 {index} 组选择器找到 {count} 个容器", index=selector_idx + 1, count=len(containers))
 
             for container in containers:
                 # 提取 URL：优先从 href 属性获取，其次从文本中用正则提取
@@ -426,5 +426,5 @@ class DOMExtractor:
                             "published_at": published_at,
                         })
 
-        logger.info("[extract_list_items_with_selectors] 提取完成 | extracted_count={count}（去重后）", count=len(all_items))
+        logger.debug("[extract_list_items_with_selectors] 提取完成 | extracted_count={count}（去重后）", count=len(all_items))
         return all_items

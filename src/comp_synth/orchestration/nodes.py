@@ -38,8 +38,8 @@ async def fetch_sources(state: PipelineState) -> dict:
     result = await manager.fetch_all(sources, run_id=run_id)
 
     logger.info(
-        f"内容采集完成: {len(result.items)} 条内容, "
-        f"{len(result.errors)} 个错误"
+        "内容采集完成: {items} 条内容, {errors} 个错误",
+        items=len(result.items), errors=len(result.errors),
     )
 
     return {
@@ -63,7 +63,7 @@ async def deduplicate(state: PipelineState) -> dict:
 
     new_items = manager.merge_historical_items(raw_items)
 
-    logger.info(f"去重和合并完成: {len(raw_items)} 条原始内容 → {len(new_items)} 条最终内容")
+    logger.info("去重和合并完成: {raw} 条原始内容 → {new} 条最终内容", raw=len(raw_items), new=len(new_items))
     return {"new_items": new_items}
 
 
@@ -85,9 +85,9 @@ async def _summarize_chunk(llm, chunk: list[ContentItem]) -> str | None:
             text = coerce_text_content(response.content).strip()
             if text:
                 return text
-            logger.warning(f"[summarize_chunk] attempt={attempt}/{max_retries}: empty response")
+            logger.warning("[summarize_chunk] attempt={attempt}/{max}: empty response", attempt=attempt, max=max_retries)
         except Exception as e:
-            logger.warning(f"[summarize_chunk] attempt={attempt}/{max_retries}: {e}")
+            logger.warning("[summarize_chunk] attempt={attempt}/{max}: {error}", attempt=attempt, max=max_retries, error=e)
     return None
 
 
@@ -104,7 +104,7 @@ async def _merge_topics(llm, markdown_chunks: list[str]) -> str:
             return text
         logger.warning("[merge_topics] empty response, concatenating")
     except Exception as e:
-        logger.warning(f"[merge_topics] merge failed, concatenating: {e}")
+        logger.warning("[merge_topics] merge failed, concatenating: {error}", error=e)
     return "\n\n".join(markdown_chunks)
 
 
@@ -137,11 +137,11 @@ async def summarize(state: PipelineState) -> dict:
         if md:
             chunks_md.append(md)
         else:
-            logger.warning(f"[summarize] 分片 {start}-{start + len(chunk)} 处理失败，使用 fallback")
+            logger.warning("[summarize] 分片 {start}-{end} 处理失败，使用 fallback", start=start, end=start + len(chunk))
             chunks_md.append(_fallback_report(chunk))
 
     if len(chunks_md) > 1:
-        logger.info(f"[summarize] 合并 {len(chunks_md)} 个分片...")
+        logger.info("[summarize] 合并 {count} 个分片...", count=len(chunks_md))
         report = await _merge_topics(llm, chunks_md)
     else:
         report = chunks_md[0]
@@ -171,7 +171,7 @@ async def publish(state: PipelineState) -> dict:
     result = checker.check_all()
     if not result["passed"]:
         for err in result["errors"]:
-            logger.warning(f"报告格式检查未通过: {err}")
+            logger.warning("报告格式检查未通过: {error}", error=err)
     for warn in result["warnings"]:
         logger.warning(warn)
 
@@ -181,7 +181,7 @@ async def publish(state: PipelineState) -> dict:
     output_path = output_dir / f"digest_{timestamp}.md"
     output_path.write_text(report, encoding="utf-8")
 
-    logger.info(f"报告已写入: {output_path}")
+    logger.info("报告已写入: {path}", path=output_path)
     return {
         "report": report,
         "publish_results": {

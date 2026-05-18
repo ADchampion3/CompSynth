@@ -5,14 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 import typer
 
 from comp_synth.cli.exit_codes import EXIT_FATAL, EXIT_PARTIAL, EXIT_SUCCESS
-from comp_synth.utils.logging import CONSOLE_FMT, logger
+from comp_synth.utils.logging import configure, logger
 
 app = typer.Typer(
     name="compsynth",
@@ -95,8 +94,7 @@ def main(
         level = "WARNING"
     else:
         level = "INFO"
-    logger.remove()
-    logger.add(sys.stderr, level=level, format=CONSOLE_FMT, colorize=sys.stderr.isatty(), diagnose=False, backtrace=True)
+    configure(console_level=level)
 
 
 # ── pipeline runner (shared) ─────────────────────────────────────────────────

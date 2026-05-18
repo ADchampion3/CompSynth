@@ -57,7 +57,7 @@ class RSSCrawler(BaseCrawler):
                 metadata={**item.metadata, "site_name": site_name},
             )
         except Exception as e:
-            logger.warning(f"详情页爬取失败 {item.url}: {e}")
+            logger.warning("详情页爬取失败 {url}: {error}", url=item.url, error=e)
             return item
 
     def _filter_feed_items(self, items: list[RSSItem]) -> list[RSSItem]:

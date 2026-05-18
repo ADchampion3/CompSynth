@@ -263,12 +263,12 @@ class ContentManager:
         async with semaphore:
             if self._tracker.is_crawled(source_type, item.url):
                 done_count[0] += 1
-                logger.info(f"[{source_type} {done_count[0]}/{total}] 已爬取, 跳过: {item.url}")
+                logger.debug("[{type} {done}/{total}] 已爬取, 跳过: {url}", type=source_type, done=done_count[0], total=total, url=item.url)
                 return None
 
             done_count[0] += 1
             my_index = done_count[0]
-            logger.info(f"[{source_type} {my_index}/{total}] 开始处理: {item.url}")
+            logger.debug("[{type} {index}/{total}] 开始处理: {url}", type=source_type, index=my_index, total=total, url=item.url)
 
             result = item
             try:
@@ -277,9 +277,9 @@ class ContentManager:
                     timeout=self.ITEM_TIMEOUT,
                 )
             except asyncio.TimeoutError:
-                logger.error(f"[{source_type} {my_index}/{total}] 处理超时 ({self.ITEM_TIMEOUT}s): {item.url}")
+                logger.error("[{type} {index}/{total}] 处理超时 ({timeout}s): {url}", type=source_type, index=my_index, total=total, timeout=self.ITEM_TIMEOUT, url=item.url)
             finally:
-                logger.info(f"[{source_type} {my_index}/{total}] 完成: {item.title[:30]}")
+                logger.debug("[{type} {index}/{total}] 完成: {title}", type=source_type, index=my_index, total=total, title=item.title[:30])
             return result
 
     async def _do_process_item(
@@ -298,7 +298,7 @@ class ContentManager:
                 elif source_type != "rss":
                     item = detail
         except Exception as e:
-            logger.error(f"[{source_type}] 详情页抓取失败 {item.url}: {e}")
+            logger.error("[{type}] 详情页抓取失败 {url}: {error}", type=source_type, url=item.url, error=e)
             return item
 
         if extra_metadata:
@@ -335,8 +335,8 @@ class ContentManager:
 
         total = len(raw_items)
         logger.info(
-            f"[{source_type}] 获取到 {total} 条原始条目，开始并发处理 "
-            f"(concurrent={self.MAX_CONCURRENT}, delay={self.CRAWL_DELAY}s)"
+            "[{type}] 获取到 {total} 条原始条目，开始并发处理 (concurrent={max}, delay={delay}s)",
+            type=source_type, total=total, max=self.MAX_CONCURRENT, delay=self.CRAWL_DELAY,
         )
 
         semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
@@ -350,11 +350,11 @@ class ContentManager:
         processed = []
         for i, r in enumerate(results):
             if isinstance(r, Exception):
-                logger.error(f"[{source_type}] 条目处理异常 {raw_items[i].url}: {r}")
+                logger.error("[{type}] 条目处理异常 {url}: {error}", type=source_type, url=raw_items[i].url, error=r)
             elif r is not None:
                 processed.append(r)
 
-        logger.info(f"[{source_type}] 处理完成: {len(processed)}/{total} 条有效内容")
+        logger.info("[{type}] 处理完成: {done}/{total} 条有效内容", type=source_type, done=len(processed), total=total)
         return processed
 
     async def _summarize_content(self, title: str, content: str) -> tuple[str, list[str]]:
@@ -389,7 +389,7 @@ class ContentManager:
                     attempt=attempt, max=max_retries, error=e,
                 )
                 if attempt < max_retries:
-                    logger.info("[summarize_content] 重试 LLM 调用...")
+                    logger.debug("[summarize_content] 重试 LLM 调用...")
 
         logger.error("[summarize_content] {max} 次尝试均失败, 使用原始文本", max=max_retries)
         return last_text[:200], ["其他"]
@@ -449,7 +449,7 @@ class ContentManager:
                         summary, tags = await self._summarize_content(item.title, item.content)
                         items[orig_idx] = self._apply_summary(item, summary, tags)
                     except Exception as e:
-                        logger.warning(f"[batch_summarize] 逐条 fallback 也失败 {item.url}: {e}")
+                        logger.warning("[batch_summarize] 逐条 fallback 也失败 {url}: {error}", url=item.url, error=e)
 
         return items
 
@@ -505,7 +505,7 @@ class ContentManager:
             self._domain_proxy_store = DomainProxyStore()
 
         self._domain_proxy_store.record_failure(domain, error)
-        logger.info("Recorded proxy failure for {domain}", domain=domain)
+        logger.debug("Recorded proxy failure for {domain}", domain=domain)
 
     async def _fetch_single_source(
         self,
@@ -526,11 +526,11 @@ class ContentManager:
 
         try:
             items = await self._fetch_items_from_source(source, crawler, source_type)
-            logger.info(f"[ContentManager] 从 {source_name} 获取到 {len(items)} 条内容")
+            logger.info("[ContentManager] 从 {name} 获取到 {count} 条内容", name=source_name, count=len(items))
             return (source_name, items, None)
         except Exception as e:
             error_msg = f"爬取失败: {e}"
-            logger.exception(f"ContentManager: {error_msg}")
+            logger.exception("ContentManager: {msg}", msg=error_msg)
             self._maybe_record_proxy_failure(source, str(e))
             return (source_name, None, error_msg)
 
@@ -566,7 +566,7 @@ class ContentManager:
         if run_id:
             completed_keys = self._tracker.get_completed_source_keys(run_id)
             if completed_keys:
-                logger.info(f"[ContentManager] 断点续传: 跳过 {len(completed_keys)} 个已完成源")
+                logger.info("[ContentManager] 断点续传: 跳过 {count} 个已完成源", count=len(completed_keys))
 
         sources_to_fetch = [
             s for s in sources
@@ -610,13 +610,13 @@ class ContentManager:
 
         # Batch LLM summarize all collected items
         if result.items:
-            logger.info(f"[ContentManager] 开始批量摘要: {len(result.items)} 条内容")
+            logger.info("[ContentManager] 开始批量摘要: {count} 条内容", count=len(result.items))
             result.items = await self._batch_summarize_items(result.items)
             self._tracker.save_articles(result.items)
             # Free memory — full content is now in DB, downstream nodes only need summary
             for item in result.items:
                 item.content = ""
-            logger.info(f"[ContentManager] 批量摘要并持久化完成: {len(result.items)} 条")
+            logger.info("[ContentManager] 批量摘要并持久化完成: {count} 条", count=len(result.items))
 
         return result
 
@@ -663,9 +663,9 @@ class ContentManager:
                 historical_item = strategy.create_historical_item(meta)
                 merged.append(historical_item)
                 new_urls.add(url)
-                logger.info(f"合并今日历史内容: {url} (来源: {source_type})")
+                logger.debug("合并今日历史内容: {url} (来源: {type})", url=url, type=source_type)
             else:
-                logger.warning(f"未找到来源策略: {source_type}, 跳过 {url}")
+                logger.warning("未找到来源策略: {type}, 跳过 {url}", type=source_type, url=url)
 
         return merged
 
