@@ -10,12 +10,18 @@ callers who never call ``configure()`` explicitly still get working logs.
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 
 from loguru import logger
 
 from comp_synth import config
+
+# Suppress Crawlee's own INFO logs before it initialises.
+# Crawlee reads CRAWLEE_LOG_LEVEL from env; set it early so the default
+# INFO level is never used.
+os.environ.setdefault("CRAWLEE_LOG_LEVEL", "WARNING")
 
 LOG_DIR = Path(config.LOG_DIR)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -128,6 +134,18 @@ def configure(
         lib_logger.handlers.clear()
         lib_logger.setLevel(lvl)
         lib_logger.propagate = False
+
+    # Silence all crawlee sub-loggers (crawlee.*, created after import).
+    crawlee_logger = logging.getLogger("crawlee")
+    crawlee_logger.handlers.clear()
+    crawlee_logger.setLevel(logging.WARNING)
+    crawlee_logger.propagate = False
+    for name in list(logging.root.manager.loggerDict):
+        if name.startswith("crawlee."):
+            sub = logging.getLogger(name)
+            sub.handlers.clear()
+            sub.setLevel(logging.WARNING)
+            sub.propagate = False
 
 
 # =============================================================================

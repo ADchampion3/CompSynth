@@ -22,6 +22,9 @@ def _install_crawlee_exception_handler() -> None:
     ``CancelledError`` is delivered.  The resulting ``RuntimeError`` is harmless
     (it does not affect crawl results) but noisy.  Suppress it at the asyncio
     level so it does not pollute logs.
+
+    The task name (``Task-recurring-...``) lives in the ``future`` context key,
+    not in ``message``, so we check both.
     """
     try:
         loop = asyncio.get_running_loop()
@@ -32,11 +35,9 @@ def _install_crawlee_exception_handler() -> None:
 
     def _handler(loop: asyncio.AbstractEventLoop, context: dict) -> None:
         exc = context.get("exception")
-        if (
-            isinstance(exc, RuntimeError)
-            and "is not active" in str(exc)
-            and "recurring" in context.get("message", "")
-        ):
+        if isinstance(exc, RuntimeError) and "is not active" in str(exc):
+            return
+        if isinstance(exc, RuntimeError) and "LocalEventManager" in str(exc):
             return
         if default:
             default(loop, context)
