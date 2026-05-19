@@ -5,8 +5,10 @@ from types import SimpleNamespace
 from comp_synth.orchestration import nodes as nodes_module
 from comp_synth.orchestration import pipeline as pipeline_module
 from comp_synth.orchestration.nodes import (
+    _estimate_tokens,
     _fallback_report,
-    _merge_topics,
+    _format_report,
+    _format_report_grouped,
     _summarize_chunk,
     fetch_sources,
     publish,
@@ -39,7 +41,7 @@ def test_run_pipeline_summarizes_and_publishes_new_items(monkeypatch):
     async def summarize_node(state):
         calls.append("summarize")
         assert state["new_items"] == [item]
-        return {"report": md_report}
+        return {"report": md_report, "report_parts": [md_report]}
 
     async def publish_node(state):
         calls.append("publish")
@@ -236,45 +238,88 @@ def test_summarize_chunk_handles_list_content():
 
 
 # ------------------------------------------------------------------
-# _merge_topics tests
+# _format_report tests
 # ------------------------------------------------------------------
 
-def test_merge_topics_returns_merged_markdown():
-    merged = "## Merged\n### 主题概要\nMerged summary\n\n### 文章列表\n1. **[t](u)** - s"
+def test_format_report_returns_formatted_output():
+    formatted = "# 主题内容报告 - 2026-05-19\n\n## 核心总览\nTest report."
 
     class FakeLLM:
         async def ainvoke(self, messages):
-            return SimpleNamespace(content=merged)
+            return SimpleNamespace(content=formatted)
 
-    chunks = [
-        "## AI技术\n### 主题概要\nAI\n\n### 文章列表\n1. **[t1](u1)** - s1",
-        "## AI技术\n### 主题概要\nAI2\n\n### 文章列表\n1. **[t2](u2)** - s2",
-    ]
-    result = asyncio.run(_merge_topics(FakeLLM(), chunks))
+    raw = "## AI技术\n### 主题概要\nAI\n\n### 文章列表\n1. **[t](u)** - s"
+    result = asyncio.run(_format_report(FakeLLM(), raw))
 
-    assert result == merged
+    assert result == formatted
 
 
-def test_merge_topics_falls_back_to_concatenation_on_error():
+def test_format_report_falls_back_on_error():
     class FakeLLM:
         async def ainvoke(self, messages):
             raise RuntimeError("LLM error")
 
-    chunks = ["chunk1", "chunk2"]
-    result = asyncio.run(_merge_topics(FakeLLM(), chunks))
+    raw = "## AI技术\n### 主题概要\nAI\n\n### 文章列表\n1. **[t](u)** - s"
+    result = asyncio.run(_format_report(FakeLLM(), raw))
 
-    assert result == "chunk1\n\nchunk2"
+    assert result == raw
 
 
-def test_merge_topics_falls_back_on_empty_response():
+def test_format_report_falls_back_on_empty_response():
     class FakeLLM:
         async def ainvoke(self, messages):
             return SimpleNamespace(content="")
 
-    chunks = ["chunk1", "chunk2"]
-    result = asyncio.run(_merge_topics(FakeLLM(), chunks))
+    raw = "## AI技术\n### 主题概要\nAI"
+    result = asyncio.run(_format_report(FakeLLM(), raw))
 
-    assert result == "chunk1\n\nchunk2"
+    assert result == raw
+
+
+# ------------------------------------------------------------------
+# _format_report_grouped tests
+# ------------------------------------------------------------------
+
+def test_format_report_grouped_single_group():
+    """All chunks fit in one group → single report."""
+    formatted = "# 主题内容报告\n## 核心\nOK."
+
+    class FakeLLM:
+        async def ainvoke(self, messages):
+            return SimpleNamespace(content=formatted)
+
+    chunks = ["## Topic1\nsummary1", "## Topic2\nsummary2"]
+    result = asyncio.run(_format_report_grouped(FakeLLM(), chunks, max_tokens_per_group=100000))
+
+    assert len(result) == 1
+    assert result[0] == formatted
+
+
+def test_format_report_grouped_splits_into_multiple_groups():
+    """Chunks exceeding token limit get split into multiple groups."""
+    call_count = 0
+
+    class FakeLLM:
+        async def ainvoke(self, messages):
+            nonlocal call_count
+            call_count += 1
+            return SimpleNamespace(content=f"# Report part {call_count}")
+
+    # Each chunk is large enough to force separate groups
+    chunks = ["x" * 5000, "y" * 5000, "z" * 5000]
+    result = asyncio.run(_format_report_grouped(FakeLLM(), chunks, max_tokens_per_group=1000))
+
+    assert len(result) == 3
+    assert call_count == 3
+
+
+# ------------------------------------------------------------------
+# _estimate_tokens tests
+# ------------------------------------------------------------------
+
+def test_estimate_tokens():
+    assert _estimate_tokens("hello") == 1
+    assert _estimate_tokens("a" * 150) == 50
 
 
 # ------------------------------------------------------------------
@@ -310,7 +355,7 @@ def test_publish_writes_report_to_file(tmp_path, monkeypatch):
     monkeypatch.setattr("comp_synth.config.settings.output_dir", tmp_path)
     report = "## Topic\n### 主题概要\nSummary\n\n### 文章列表\n1. **[t](u)** - s"
 
-    result = asyncio.run(publish({"report": report}))
+    result = asyncio.run(publish({"report": report, "report_parts": [report]}))
 
     assert result["publish_results"]["status"] == "success"
     written = Path(result["publish_results"]["path"]).read_text(encoding="utf-8")
@@ -322,3 +367,24 @@ def test_publish_skips_when_no_report():
 
     assert result["publish_results"]["status"] == "skipped"
     assert result["report"] == ""
+
+
+def test_publish_writes_part_files_for_multiple_parts(tmp_path, monkeypatch):
+    monkeypatch.setattr("comp_synth.config.settings.output_dir", tmp_path)
+    part1 = "# Report Part 1"
+    part2 = "# Report Part 2"
+    combined = f"{part1}\n\n---\n\n{part2}"
+
+    result = asyncio.run(publish({"report": combined, "report_parts": [part1, part2]}))
+
+    assert result["publish_results"]["status"] == "success"
+    files = result["publish_results"]["files"]
+    assert len(files) == 3  # main + 2 parts
+    # Main file contains combined report
+    main = Path(files[0]).read_text(encoding="utf-8")
+    assert main == combined
+    # Part files contain individual parts
+    p1 = Path(files[1]).read_text(encoding="utf-8")
+    assert p1 == part1
+    p2 = Path(files[2]).read_text(encoding="utf-8")
+    assert p2 == part2

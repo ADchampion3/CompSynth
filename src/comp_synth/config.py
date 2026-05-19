@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""
     model: str = "gpt-4o-mini"
+    llm_max_tokens: int = 16384
     llm_batch_size: int = 10
     summarize_chunk_size: int = 50
 

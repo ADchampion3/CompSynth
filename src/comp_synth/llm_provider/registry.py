@@ -14,6 +14,7 @@ class LLMRegistry:
 
     def __init__(self, config: dict[str, Any]):
         self._providers: dict[str, BaseChatModel] = {}
+        self._max_tokens: int = config.get("llm_max_tokens", 16384)
         self._init_llm(config)
 
     def _init_llm(self, config: dict[str, Any]) -> None:
@@ -73,6 +74,7 @@ class LLMRegistry:
                 model=config.get("model", "gpt-4o-mini"),
                 api_key=config.get("api_key", ""),
                 base_url=config.get("base_url"),
+                max_tokens=self._max_tokens,
             )
         if provider_type == "anthropic":
             from langchain_anthropic import ChatAnthropic
@@ -80,6 +82,7 @@ class LLMRegistry:
             kwargs: dict[str, Any] = {
                 "model": config.get("model", "claude-sonnet-4-20250514"),
                 "api_key": config.get("api_key", ""),
+                "max_tokens": self._max_tokens,
             }
             if config.get("base_url"):
                 kwargs["base_url"] = config["base_url"]
